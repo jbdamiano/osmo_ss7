@@ -76,7 +76,7 @@ decode_payload(?MTP3_SERV_MTN, Payload) ->
 	#mtp3mg_msg{h0 = H0, h1 = H1, payload = TP};
 decode_payload(?MTP3_SERV_MGMT, Payload) ->
 	<<H1:4, H0:4, Remain/binary>> = Payload,
-	#mtp3mg_msg{h0 = H0, h1 = H1, payload = Payload};
+	#mtp3mg_msg{h0 = H0, h1 = H1, payload = Remain};
 decode_payload(_, Payload) ->
 	Payload.
 
