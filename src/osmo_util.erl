@@ -107,10 +107,15 @@ tuple_walk(Tpl, TupleCb, Args) when is_tuple(Tpl), is_function(TupleCb),
 tuple_walk(Path, Tpl, TupleCb, Args) when is_list(Path), is_tuple(Tpl),
 					  is_list(Args) ->
 	% call Callback
-	NewTpl = TupleCb(Path, Tpl, Args),
-	[TplName|TplList] = tuple_to_list(NewTpl),
-	NewTplList = tuple_fieldlist_walk(Path, TplName, TplList, TupleCb, Args),
-	list_to_tuple([TplName|NewTplList]);
+	RetVal = TupleCb(Path, Tpl, Args),
+	if
+		is_tuple(RetVal) ->
+                	[TplName|TplList] = tuple_to_list(RetVal),
+                	NewTplList = tuple_fieldlist_walk(Path, TplName, TplList, TupleCb, Args),
+                	list_to_tuple([TplName|NewTplList]);
+        	true ->
+                	RetVal
+        end;
 tuple_walk(Path, TplL, TupleCb, Args) when is_list(Path), is_list(TplL),
 					   is_list(Args) ->
 	tuple_walk_list(Path, TplL, TupleCb, Args, []).
