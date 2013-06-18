@@ -162,6 +162,9 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SAC}},
 		comm_lost ->
 			send_prim_to_user(LoopDat, osmo_util:make_prim('M','SCTP_RELEASE',indication)),
 			LoopDat2 = reconnect_sctp(LoopDat);
+		shutdown_comp ->
+			send_prim_to_user(LoopDat, osmo_util:make_prim('M','SCTP_RELEASE',indication)),
+			LoopDat2 = reconnect_sctp(LoopDat);
 		addr_unreachable ->
 			LoopDat2 = reconnect_sctp(LoopDat)
 	end,
