@@ -35,7 +35,8 @@
 -author('Harald Welte <laforge@gnumonks.org>').
 -include("isup.hrl").
 
--export([parse_isup_msg/1, encode_isup_msg/1, parse_isup_party/2, encode_isup_party/1]).
+-export([parse_isup_msg/1, encode_isup_msg/1, parse_isup_party/2,
+	 encode_isup_party/1, gen_party_number/3]).
 
 -compile(export_all).
 
@@ -485,3 +486,34 @@ encode_isup_msg(Msg = #isup_msg{msg_type = MsgType}) ->
 	HdrBin = encode_isup_hdr(Msg),
 	Remain = encode_isup_msgt(MsgType, Msg),
 	<<HdrBin/binary, Remain/binary>>.
+
+
+listify(L) when is_list(L) ->
+	L;
+listify(L) when is_integer(L) ->
+	osmo_util:int2digit_list(L).
+
+encode_nature(international) ->
+	?ISUP_ADDR_NAT_INTERNATIONAL;
+encode_nature(national) ->
+	?ISUP_ADDR_NAT_NATIONAL;
+encode_nature(subscriber) ->
+	?ISUP_ADDR_NAT_SUBSCRIBER;
+encode_nature(Int) when is_integer(Int) ->
+	Int.
+
+encode_numplan(isdn) ->
+	1;
+encode_numplan(telephony) ->
+	1;
+encode_numplan(data) ->
+	3;
+encode_numplan(telex) ->
+	4;
+encode_numplan(Int) when is_integer(Int) ->
+	Int.
+
+gen_party_number(NAI, NumPlan, Number) ->
+	#party_number{nature_of_addr_ind = encode_nature(NAI),
+		      numbering_plan = encode_numplan(NumPlan),
+		      phone_number = listify(Number)}.
