@@ -171,6 +171,29 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SAC}},
 	inet:setopts(Socket, [{active, once}]),
 	{next_state, asp_down, LoopDat2};
 
+handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SPC}},
+	     State, LoopDat) when is_record(SPC, sctp_paddr_change) ->
+	io:format("SCTP Peer address change ~p ~p~n", [ANC, SPC]),
+	{NewState, LoopDat2} = case SPC#sctp_paddr_change.state of
+		addr_available ->
+			% we don't care
+			{State, LoopDat};
+		addr_unreachable ->
+			send_prim_to_user(LoopDat, osmo_util:make_prim('M','SCTP_RELEASE',indication)),
+			{asp_down, reconnect_sctp(LoopDat)};
+		addr_removed ->
+			% FIXME: what if the last one is removed
+			{State, LoopDat};
+		addr_added ->
+			% we don't care
+			{State, LoopDat};
+		addr_made_prim ->
+			% FIXME: do we need to change remote_ip in our LoopDat?
+			{State, LoopDat}
+	end,
+	inet:setopts(Socket, [{active, once}]),
+	{next_state, NewState, LoopDat2};
+
 handle_info({sctp, Socket, RemoteIp, RemotePort, {[Anc], Data}}, State, LoopDat) ->
 	io:format("SCTP rx data: ~p ~p~n", [Anc, Data]),
 	% process incoming SCTP data 
