@@ -56,6 +56,12 @@ add_mtp_link(L=#sigtran_link{type = m3ua, name = Name,
 	ChildSpec = {ChildName, {ss7_link_m3ua, start_link, [L]},
 		     permanent, 2000, worker, [ss7_link_m3ua]},
 	supervisor:start_child(?MODULE, ChildSpec);
+add_mtp_link(L=#sigtran_link{type = m2ua, name = Name,
+			   local = Local, remote = Remote}) ->
+	ChildName = list_to_atom("ss7_link_m2ua_" ++ Name),
+	ChildSpec = {ChildName, {ss7_link_m2ua, start_link, [L]},
+		     permanent, 2000, worker, [ss7_link_m2ua]},
+	supervisor:start_child(?MODULE, ChildSpec);
 add_mtp_link(L=#sigtran_link{type = ipa_client, name = Name}) ->
 	ChildName = list_to_atom("ss7_link_ipa_client_" ++ Name),
 	ChildSpec = {ChildName, {ss7_link_ipa_client, start_link, [L]},
