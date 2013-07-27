@@ -80,9 +80,6 @@ prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = confirm}, Sta
 	Asp = LoopDat#m2ua_state.asp_pid,
 	gen_fsm:send_event(Asp, osmo_util:make_prim('M','ASP_ACTIVE',request)),
 	{ignore, LoopDat};
-prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = indication}, State, LoopDat) ->
-	% indication in case of passive/listen mode
-	{ignore, LoopDat};
 
 prim_up(Prim, State, LoopDat) ->
 	% default: forward all primitives to the user 
