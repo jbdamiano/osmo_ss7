@@ -262,7 +262,12 @@ state2aspas(asp_active) -> 'ASP_ACTIVE'.
 % propagate an ASP state transition as ASPAS primitive to AS
 next_state(State, LoopDat = #asp_state{as_pid = AsPid}) ->
 	Prim = osmo_util:make_prim('ASPAS', state2aspas(State), indication),
-	gen_fsm:send_event(AsPid, Prim),
+	case AsPid of
+		undefined ->
+			ok;
+		_ ->
+			gen_fsm:send_event(AsPid, Prim)
+	end,
 	{next_state, State, LoopDat}.
 
 % Helper function to send data to the SCTP peer
