@@ -74,12 +74,16 @@ prim_up(#primitive{subsystem='M', gen_name = 'SCTP_ESTABLISH', spec_name = confi
 	{ignore, LoopDat};
 prim_up(#primitive{subsystem='M', gen_name = 'SCTP_ESTABLISH', spec_name = indication}, State, LoopDat) ->
 	% indication in case of passive/listen mode
-	Asp = LoopDat#m2ua_state.asp_pid,
 	{ignore, LoopDat};
 prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = confirm}, State, LoopDat) ->
+	% confirmation in case of active/connect mode
 	Asp = LoopDat#m2ua_state.asp_pid,
 	gen_fsm:send_event(Asp, osmo_util:make_prim('M','ASP_ACTIVE',request)),
 	{ignore, LoopDat};
+prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = indication}, State, LoopDat) ->
+	% indication in case of passive/listen mode
+	{ignore, LoopDat};
+
 prim_up(Prim, State, LoopDat) ->
 	% default: forward all primitives to the user 
 	{ok, Prim, LoopDat}.
