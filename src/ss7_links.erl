@@ -52,7 +52,8 @@
 -export([get_pid_for_link/2, get_pid_for_dpc_sls/2,
 	 mtp3_tx/1, mtp3_tx/2,
 	 get_linkset_for_dpc/1, get_opc_for_linkset/1, is_pc_local/1,
-	 get_user_pid_for_service/1, mtp3_rx/1, dump/0]).
+	 get_user_pid_for_service/1, mtp3_rx/1, dump/0,
+	 role2sctp_role/1]).
 
 -type link_state() :: down | up_inactive | active.
 -opaque tid()      :: integer().
@@ -465,3 +466,8 @@ propagate_linkstate_to_linkset(LsName, Sls, State) ->
 	    _ ->
 		{error, ets_lookup}
 	end.
+
+role2sctp_role(asp) ->
+	active;
+role2sctp_role(sg) ->
+	passive.
