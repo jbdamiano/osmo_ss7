@@ -42,7 +42,7 @@
 
 -export([start_link/1, init/1]).
 
--export([handle_cast/2, terminate/2]).
+-export([handle_info/2, terminate/2]).
 
 -record(loop_dat, {
 	 m2ua_pid,
@@ -62,8 +62,7 @@ init(L = #sigtran_link{type = m2ua, name = Name, linkset_name = LinksetName,
 		{sctp_role, ss7_links:role2sctp_role(Role)},
 		{user_pid, self()}, {sctp_remote_ip, RemoteIp},
 		{sctp_remote_port, RemotePort}, {sctp_local_port, LocalPort},
-		{sctp_local_ip, LocalIp},
-		{user_fun, fun m2ua_tx_to_user/2}, {user_args, self()}],
+		{sctp_local_ip, LocalIp}],
 	{ok, M2uaPid} = sctp_core:start_link(Opts),
 	% FIXME: register this link with SCCP_SCRC
 	ok = ss7_links:register_link(LinksetName, Sls, Name),
@@ -81,41 +80,25 @@ scrc_tx_to_mtp(Prim, Args) ->
 	M2uaPid = Args,
 	gen_fsm:send_event(M2uaPid, Prim).
 
-% Callback that we pass to the m3ua_core, which it will call when it wants to
-% send a primitive up the stack to SCCP
-m2ua_tx_to_user(P=#primitive{subsystem = 'MTP'}, Args) ->
-	% send it directly to the 'service' that has bound
-	ss7_links:mtp3_rx(P);
-m2ua_tx_to_user(P=#primitive{subsystem = 'M'}, Args) ->
-	% send management primitives into the m2ua_link process
-	UserPid = Args,
-	gen_server:cast(UserPid, P).
-
-handle_cast(P = #primitive{subsystem = 'MTP', gen_name = 'TRANSFER', spec_name = request}, L) ->
+handle_info(P = #primitive{subsystem = 'MTP', gen_name = 'TRANSFER', spec_name = request}, L) ->
 	scrc_tx_to_mtp(P, L#loop_dat.m2ua_pid),
 	{noreply, L};
-% This is what we receive from m2ua_tx_to_user/2
 
-handle_cast(#primitive{subsystem = 'M', gen_name = 'ASP_UP', spec_name = confirm}, L) ->
-	io:format("~p: ASP_UP.ind -> ASP_ACTIVE.req~n", [?MODULE]),
+handle_info(#primitive{subsystem = 'M', gen_name = 'ASP_UP'}, L) ->
 	set_link_state(L#loop_dat.link, up),
-	gen_fsm:send_event(L#loop_dat.m2ua_pid, osmo_util:make_prim('M','ASP_ACTIVE',request)),
 	{noreply, L};
-handle_cast(#primitive{subsystem = 'M', gen_name = 'ASP_ACTIVE', spec_name = confirm}, L) ->
-	io:format("~p: ASP_ACTIVE.ind - M2UA now active and ready~n", [?MODULE]),
+handle_info(#primitive{subsystem = 'M', gen_name = 'ASP_ACTIVE'}, L) ->
 	set_link_state(L#loop_dat.link, active),
-	%tx_sccp_udt(L#loop_dat.scrc_pid),
 	{noreply, L};
-handle_cast(#primitive{subsystem = 'M', gen_name = 'ASP_DOWN'}, L) ->
-	io:format("~p: ASP_DOWN.ind~n", [?MODULE]),
+handle_info(#primitive{subsystem = 'M', gen_name = 'ASP_DOWN'}, L) ->
 	set_link_state(L#loop_dat.link, down),
 	{noreply, L};
-handle_cast(#primitive{subsystem = 'M', gen_name = 'ASP_INACTIVE'}, L) ->
-	io:format("~p: ASP_INACTIVE.ind~n", [?MODULE]),
+handle_info(#primitive{subsystem = 'M', gen_name = 'ASP_INACTIVE'}, L) ->
 	set_link_state(L#loop_dat.link, up),
 	{noreply, L};
-handle_cast(P, L) ->
-	io:format("~p: Ignoring M2UA prim ~p~n", [?MODULE, P]),
+
+handle_info(P, L) ->
+	io:format("~p: Ignoring M2UA cast ~p~n", [?MODULE, P]),
 	{noreply, L}.
 
 terminate(Reason, _S) ->
