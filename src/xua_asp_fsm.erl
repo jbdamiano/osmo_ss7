@@ -141,7 +141,7 @@ asp_down({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP},
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP_ACK, []);
 
 asp_down(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtState}) ->
-	{State, LDnew} = Module:asp_down(WhateverElse, ExtState, LoopDat),
+	{next_state, State, LDnew} = Module:asp_down(WhateverElse, ExtState, LoopDat),
 	next_state(State, LDnew).
 
 
@@ -199,9 +199,8 @@ asp_inactive({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN},
 	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_DOWN',indication)),
 	send_msg(LoopDat, asp_active, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK, []);
 
-
 asp_inactive(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtState}) ->
-	{State, LDnew} = Module:asp_inactive(WhateverElse, ExtState, LoopDat),
+	{next_state, State, LDnew} = Module:asp_inactive(WhateverElse, ExtState, LoopDat),
 	next_state(State, LDnew).
 
 
@@ -275,7 +274,7 @@ asp_active(#m3ua_msg{version = 1, msg_class = ?M3UA_MSGC_TRANSFER,
 	next_state(asp_active, LoopDat);
 
 asp_active(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtState}) ->
-	{State, LDnew} = Module:asp_active(WhateverElse, ExtState, LoopDat),
+	{next_state, State, LDnew} = Module:asp_active(WhateverElse, ExtState, LoopDat),
 	next_state(State, LDnew).
 
 
