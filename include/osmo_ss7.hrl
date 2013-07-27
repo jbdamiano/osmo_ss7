@@ -11,7 +11,8 @@
 	linkset_name,
 	sls,
 	local,
-	remote
+	remote,
+	role
 }).
 
 
