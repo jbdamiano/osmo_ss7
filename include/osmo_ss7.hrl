@@ -1,18 +1,20 @@
 
+-type role()	   :: asp | sg.
+
 -record(sigtran_peer, {
 	ip,
-	port,
+	port		:: 1..65535,
 	point_code
 }).
 
 -record(sigtran_link, {
-	type,
-	name,
-	linkset_name,
-	sls,
-	local,
-	remote,
-	role
+	type		:: atom(),
+	name		:: string(),
+	linkset_name	:: string(),
+	sls		:: non_neg_integer(),
+	local		:: record(sigtran_peer),
+	remote		:: record(sigtran_peer),
+	role		:: role()
 }).
 
 
