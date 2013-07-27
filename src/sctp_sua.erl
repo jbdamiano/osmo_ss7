@@ -56,7 +56,7 @@
 init(_InitOpts) ->
 	% start SUA ASP
 	Fun = fun(Prim, Args) -> asp_prim_to_user(Prim, Args) end,
-	AsPid = fixme,
+	AsPid = undefined,
 	{ok, Asp} = gen_fsm:start_link(xua_asp_fsm, [AsPid, sua_asp, [], Fun, [self()], self()], [{debug, [trace]}]),
 	{ok, #sua_state{asp_pid=Asp}}.
 
