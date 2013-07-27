@@ -68,7 +68,9 @@ behaviour_info(Other) ->
 	}).
 
 start_link(InitOpts) ->
-	gen_fsm:start_link(?MODULE, InitOpts, [{debug, [trace]}]).
+	LocalPort = proplists:get_value(sctp_local_port, InitOpts),
+	Name = list_to_atom("sctp_core_" ++ integer_to_list(LocalPort)),
+	gen_fsm:start_link({local, Name}, ?MODULE, InitOpts, [{debug, [trace]}]).
 
 reconnect_sctp(L = #sctp_state{sctp_remote_ip = Ip, sctp_remote_port = Port, sctp_sock = Sock}) ->
 	io:format("SCTP Reconnect ~p:~p~n", [Ip, Port]),
@@ -108,7 +110,7 @@ init(InitOpts) ->
 				active ->
 					gen_fsm:send_event(self(), osmo_util:make_prim('M','SCTP_ESTABLISH',request));
 				_ ->
-					ok
+					ok = gen_sctp:listen(SctpSock, true)
 			end,
 			{ok, idle, LoopDat};
 		Default ->
@@ -174,6 +176,9 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SAC}},
 				associating ->
 					NewState = established,
 					Spec = confirm;
+				idle ->
+					NewState = established,
+					Spec = indication;
 				_ ->
 					NewState = State,
 					Spec = indication
