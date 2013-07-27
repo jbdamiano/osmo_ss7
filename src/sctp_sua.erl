@@ -53,11 +53,11 @@
 % gen_fsm callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-init(_InitOpts) ->
+init([Role]) ->
 	% start SUA ASP
 	Fun = fun(Prim, Args) -> asp_prim_to_user(Prim, Args) end,
 	AsPid = undefined,
-	{ok, Asp} = gen_fsm:start_link(xua_asp_fsm, [AsPid, sua_asp, [], Fun, [self()], self()], [{debug, [trace]}]),
+	{ok, Asp} = gen_fsm:start_link(xua_asp_fsm, [AsPid, sua_asp, [], Fun, [self()], self(), Role], [{debug, [trace]}]),
 	{ok, #sua_state{asp_pid=Asp}}.
 
 terminate(Reason, _State, _LoopDat) ->

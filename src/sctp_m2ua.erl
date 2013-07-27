@@ -1,6 +1,6 @@
 % M2UA in accordance with RFC3331 (http://tools.ietf.org/html/rfc3331)
 
-% (C) 2011-2012 by Harald Welte <laforge@gnumonks.org>
+% (C) 2011-2013 by Harald Welte <laforge@gnumonks.org>
 %
 % All Rights Reserved
 %
@@ -27,6 +27,8 @@
 -include("m2ua.hrl").
 -include("m3ua.hrl").
 
+-define(M2UA_STREAM_USER,	1).
+
 -export([init/1, terminate/3, code_change/4, handle_event/3, handle_info/3]).
 
 -export([rx_sctp/4, mtp_xfer/2, state_change/3, prim_up/3]).
@@ -41,9 +43,11 @@
 % gen_fsm callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-init(_InitOpts) ->
-	Fun = fixme, % FIXME
-	{ok, Asp} = gen_fsm:start_link(xua_asp_fsm, [sua_asp, [], Fun, [self()], self()], [{debug, [trace]}]),
+init([Role]) ->
+	Fun = fun(Prim, Args) -> asp_prim_to_user(Prim, Args) end,
+	AsPid = undefined, % FIXME
+	% we use sua_asp module, as m2ua has no difference here
+	{ok, Asp} = gen_fsm:start_link(xua_asp_fsm, [AsPid, sua_asp, [], Fun, [self()], self(), Role], [{debug, [trace]}]),
 	{ok, #m2ua_state{last_bsn_received=16#ffffff, last_fsn_sent=16#ffffff, asp_pid=Asp}}.
 
 terminate(Reason, _State, _LoopDat) ->
@@ -64,8 +68,13 @@ handle_info(_Info, State, LoopDat) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 prim_up(#primitive{subsystem='M', gen_name = 'SCTP_ESTABLISH', spec_name = confirm}, State, LoopDat) ->
+	% confirmation in case of active/connect mode
 	Asp = LoopDat#m2ua_state.asp_pid,
 	gen_fsm:send_event(Asp, osmo_util:make_prim('M','ASP_UP',request)),
+	{ignore, LoopDat};
+prim_up(#primitive{subsystem='M', gen_name = 'SCTP_ESTABLISH', spec_name = indication}, State, LoopDat) ->
+	% indication in case of passive/listen mode
+	Asp = LoopDat#m2ua_state.asp_pid,
 	{ignore, LoopDat};
 prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = confirm}, State, LoopDat) ->
 	Asp = LoopDat#m2ua_state.asp_pid,
@@ -79,7 +88,7 @@ prim_up(Prim, State, LoopDat) ->
 % sctp_core indicates that we have received some data...
 rx_sctp(#sctp_sndrcvinfo{ppid = ?M2UA_PPID}, Data, State, LoopDat) ->
 	Asp = LoopDat#m2ua_state.asp_pid,
-	{ok, M2ua} = xua_codec:parse_msg(Data),
+	M2ua = xua_codec:parse_msg(Data),
 	% FIXME: check sequenc number linearity
 	case M2ua of
 		#xua_msg{msg_class = ?M3UA_MSGC_ASPSM} ->
@@ -120,7 +129,7 @@ rx_sctp(#sctp_sndrcvinfo{ppid = ?M2UA_PPID}, Data, State, LoopDat) ->
 			  msg_type = ?M2UA_MAUP_MSGT_DATA} ->
 			Mtp3 = proplists:get_value(?M2UA_P_M2UA_DATA1, M2ua#xua_msg.payload),
 			Prim = osmo_util:make_prim('MTP','TRANSFER',indication, Mtp3),
-			{ignore, LoopDat};
+			{ok, Prim, LoopDat};
 		_ ->
 			% do something with link related msgs
 			io:format("M2UA Unknown message ~p in state ~p~n", [M2ua, State]),
@@ -128,13 +137,16 @@ rx_sctp(#sctp_sndrcvinfo{ppid = ?M2UA_PPID}, Data, State, LoopDat) ->
 	end.
 
 % MTP-TRANSFER.req has arrived at sctp_core, encapsulate+tx it
+mtp_xfer(M2ua, LoopDat) when is_record(M2ua, xua_msg) ->
+	M2uaBin = xua_codec:encode_msg(M2ua),
+	tx_sctp(?M2UA_STREAM_USER, M2uaBin),
+	LoopDat;
+
 mtp_xfer(Mtp3, LoopDat) ->
 	M2ua = #xua_msg{msg_class = ?M2UA_MSGC_MAUP,
 			 msg_type = ?M2UA_MAUP_MSGT_DATA,
 			 payload = {?M2UA_P_M2UA_DATA1, length(Mtp3), Mtp3}},
-	M2paBin = xua_codec:encode_msg(M2ua),
-	% FIXME tx_sctp(?M2UA_STREAM_USER, M2paBin),
-	LoopDat.
+	mtp_xfer(M2ua, LoopDat).
 
 state_change(_, established, LoopDat) ->
 	% emulate a 'start' from LSC
@@ -163,3 +175,7 @@ tx_sctp(Stream, Payload) when is_integer(Stream), is_binary(Payload) ->
 	Param = {Stream, ?M2UA_PPID, Payload},
 	% sent to 'ourselves' (behaviour master module)
 	gen_fsm:send_event(self(), osmo_util:make_prim('SCTP','TRANSFER',request,Param)).
+
+% callback fun for ASP FMS
+asp_prim_to_user(Prim, [SctpPid]) ->
+	gen_fsm:send_event(SctpPid, Prim).

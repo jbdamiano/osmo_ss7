@@ -42,24 +42,27 @@
 
 -export([start_link/1, init/1]).
 
--export([handle_cast/2]).
+-export([handle_cast/2, terminate/2]).
 
 -record(loop_dat, {
 	 m2ua_pid,
 	 link
 	}).
 
-start_link(Args) ->
-	gen_server:start_link(?MODULE, Args, [{debug, [trace]}]).
+start_link(Args = #sigtran_link{name=LinkName}) ->
+	Name = list_to_atom("ss7_link_m2ua_" ++ LinkName),
+	gen_server:start_link({local, Name}, ?MODULE, Args, [{debug, [trace]}]).
 
 init(L = #sigtran_link{type = m2ua, name = Name, linkset_name = LinksetName,
-		       sls = Sls, local = Local, remote = Remote}) ->
+		       sls = Sls, local = Local, remote = Remote, role = Role}) ->
 	#sigtran_peer{ip = LocalIp, port = LocalPort} = Local,
 	#sigtran_peer{ip = RemoteIp, port = RemotePort} = Remote,
 	% start the M2UA link to the SG
-	Opts = [{module, sctp_m2ua}, {module_args, []},
+	Opts = [{module, sctp_m2ua}, {module_args, [Role]},
+		{sctp_role, ss7_links:role2sctp_role(Role)},
 		{user_pid, self()}, {sctp_remote_ip, RemoteIp},
 		{sctp_remote_port, RemotePort}, {sctp_local_port, LocalPort},
+		{sctp_local_ip, LocalIp},
 		{user_fun, fun m2ua_tx_to_user/2}, {user_args, self()}],
 	{ok, M2uaPid} = sctp_core:start_link(Opts),
 	% FIXME: register this link with SCCP_SCRC
@@ -92,10 +95,7 @@ handle_cast(P = #primitive{subsystem = 'MTP', gen_name = 'TRANSFER', spec_name =
 	scrc_tx_to_mtp(P, L#loop_dat.m2ua_pid),
 	{noreply, L};
 % This is what we receive from m2ua_tx_to_user/2
-handle_cast(#primitive{subsystem = 'M', gen_name = 'SCTP_ESTABLISH', spec_name = confirm}, L) ->
-	io:format("~p: SCTP_ESTABLISH.ind -> ASP_UP.req~n", [?MODULE]),
-	gen_fsm:send_event(L#loop_dat.m2ua_pid, osmo_util:make_prim('M','ASP_UP',request)),
-	{noreply, L};
+
 handle_cast(#primitive{subsystem = 'M', gen_name = 'ASP_UP', spec_name = confirm}, L) ->
 	io:format("~p: ASP_UP.ind -> ASP_ACTIVE.req~n", [?MODULE]),
 	set_link_state(L#loop_dat.link, up),

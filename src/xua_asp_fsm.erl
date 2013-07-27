@@ -49,7 +49,7 @@
 -export([send_sctp_to_peer/2, send_prim_to_user/2]).
 
 % global exports
--export([get_state/1, start_link/6]).
+-export([get_state/1, start_link/7]).
 
 -export([behaviour_info/1]).
 
@@ -61,7 +61,7 @@ behaviour_info(callbacks) ->
 
 -record(asp_state, {
 		module,
-		role,
+		role,	% asp, sg
 		t_ack,
 		ext_state,
 		user_fun,
@@ -70,14 +70,14 @@ behaviour_info(callbacks) ->
 		sctp_pid
 	}).
 
-start_link(AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid) ->
-	gen_fsm:start_link(?MODULE, [AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid], [{debug, [trace]}]).
+start_link(AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid, Role) ->
+	gen_fsm:start_link(?MODULE, [AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid, Role], [{debug, [trace]}]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % gen_fsm callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-init([AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid]) ->
+init([AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid, Role]) ->
 	{ok, ExtState} = Module:init(ModuleArgs),
 	AspState = #asp_state{module = Module,
 			      user_fun = UserFun,
@@ -85,7 +85,7 @@ init([AsPid, Module, ModuleArgs, UserFun, UserArgs, SctpPid]) ->
 			      ext_state = ExtState,
 			      as_pid = AsPid,
 			      sctp_pid = SctpPid,
-			      role = asp},
+			      role = Role},
 	{ok, asp_down, AspState}.
 
 terminate(Reason, State, _LoopDat) ->
@@ -120,17 +120,25 @@ get_state(Pid) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 asp_down(#primitive{subsystem = 'M', gen_name = 'ASP_UP',
-		    spec_name = request, parameters = _Params}, LoopDat) ->
+		    spec_name = request, parameters = _Params},
+	 LoopDat = #asp_state{role=asp}) ->
 	% M-ASP_UP.req from user, generate message and send to remote peer
 	send_msg_start_tack(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, []);
 asp_down({timer_expired, t_ack, {?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, Params}}, LoopDat) ->
 	send_msg_start_tack(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, Params);
 
-asp_down({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP_ACK}, LoopDat) ->
+asp_down({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP_ACK},
+	 LoopDat = #asp_state{role=asp}) ->
 	timer:cancel(LoopDat#asp_state.t_ack),
 	% transition into ASP_INACTIVE
 	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_UP',confirm)),
 	next_state(asp_inactive, LoopDat);
+
+asp_down({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP},
+	 LoopDat = #asp_state{role=sg}) ->
+	% transition into ASP_INACTIVE
+	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_UP',inidication)),
+	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP_ACK, []);
 
 asp_down(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtState}) ->
 	{State, LDnew} = Module:asp_down(WhateverElse, ExtState, LoopDat),
@@ -142,7 +150,8 @@ asp_down(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtStat
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 asp_inactive(#primitive{subsystem = 'M', gen_name = 'ASP_ACTIVE',
-			spec_name = request, parameters = Params}, LoopDat) ->
+			spec_name = request, parameters = Params},
+	     LoopDat = #asp_state{role=asp}) ->
 	% M-ASP_ACTIVE.req from user, generate message and send to remote peer
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC,
 			   Params);
@@ -151,26 +160,45 @@ asp_inactive({timer_expired, t_ack, {?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC, P
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC, Params);
 
 asp_inactive(#primitive{subsystem = 'M', gen_name = 'ASP_DOWN',
-		      spec_name = request, parameters = _Params}, LoopDat) ->
+		      spec_name = request, parameters = _Params},
+	     LoopDat = #asp_state{role=asp}) ->
 	% M-ASP_DOWN.req from user, generate message and send to remote peer
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN, []);
 
 asp_inactive({timer_expired, t_ack, {?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN, Params}}, LoopDat) ->
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN, Params);
 
-asp_inactive({xua_msg,?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC_ACK}, LoopDat) ->
+asp_inactive({xua_msg,?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC_ACK},
+	     LoopDat = #asp_state{role=asp}) ->
 	timer:cancel(LoopDat#asp_state.t_ack),
 	% transition into ASP_ACTIVE
 	% signal this to the user
 	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_ACTIVE',confirm)),
 	next_state(asp_active, LoopDat);
 
-asp_inactive({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK}, LoopDat) ->
+asp_inactive({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK},
+	     LoopDat = #asp_state{role=asp}) ->
 	timer:cancel(LoopDat#asp_state.t_ack),
 	% transition into ASP_DOWN
 	% signal this to the user
 	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_DOWN',confirm)),
 	next_state(asp_down, LoopDat);
+
+
+asp_inactive({xua_msg,?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC},
+	     LoopDat = #asp_state{role=sg}) ->
+	% transition into ASP_ACTIVE
+	% signal this to the user
+	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_ACTIVE',indication)),
+	send_msg(LoopDat, asp_active, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC_ACK, []);
+
+asp_inactive({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN},
+	     LoopDat = #asp_state{role=asp}) ->
+	% transition into ASP_DOWN
+	% signal this to the user
+	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_DOWN',indication)),
+	send_msg(LoopDat, asp_active, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK, []);
+
 
 asp_inactive(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtState}) ->
 	{State, LDnew} = Module:asp_inactive(WhateverElse, ExtState, LoopDat),
@@ -181,14 +209,16 @@ asp_inactive(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = Ext
 % STATE "asp_active"
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-asp_active({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK}, LoopDat) ->
+asp_active({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK},
+	   LoopDat = #asp_state{role=asp}) ->
 	timer:cancel(LoopDat#asp_state.t_ack),
 	% transition into ASP_DOWN
 	% signal this to the user
 	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_DOWN',confirm)),
 	next_state(asp_down, LoopDat);
 
-asp_active({xua_msg, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA_ACK}, LoopDat) ->
+asp_active({xua_msg, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA_ACK},
+	   LoopDat = #asp_state{role=asp}) ->
 	timer:cancel(LoopDat#asp_state.t_ack),
 	% transition into ASP_INACTIVE
 	% signal this to the user
@@ -196,7 +226,8 @@ asp_active({xua_msg, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA_ACK}, LoopDat) ->
 	next_state(asp_inactive, LoopDat);
 
 asp_active(#primitive{subsystem = 'M', gen_name = 'ASP_DOWN',
-		      spec_name = request, parameters = _Params}, LoopDat) ->
+		      spec_name = request, parameters = _Params},
+	   LoopDat = #asp_state{role=asp}) ->
 	% M-ASP_DOWN.req from user, generate message and send to remote peer
 	send_msg_start_tack(LoopDat, asp_active, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN, []);
 
@@ -204,12 +235,28 @@ asp_active({timer_expired, t_ack, {?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN, Par
 	send_msg_start_tack(LoopDat, asp_active, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN, Params);
 
 asp_active(#primitive{subsystem = 'M', gen_name = 'ASP_INACTIVE',
-		      spec_name = request, parameters = _Params}, LoopDat) ->
+		      spec_name = request, parameters = _Params},
+	   LoopDat = #asp_state{role=asp}) ->
 	% M-ASP_INACTIVE.req from user, generate message and send to remote peer
 	send_msg_start_tack(LoopDat, asp_active, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA, []);
 
 asp_active({timer_expired, t_ack, {?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA, Params}}, LoopDat) ->
 	send_msg_start_tack(LoopDat, asp_active, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA, Params);
+
+asp_active({xua_msg, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA},
+	   LoopDat = #asp_state{role=sg}) ->
+	% transition into ASP_INACTIVE
+	% signal this to user
+	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_INACTIVE',indication)),
+	send_msg(LoopDat, asp_inactive, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA_ACK, []);
+
+asp_active({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN},
+	   LoopDat = #asp_state{role=sg}) ->
+	% transition into ASP_INACTIVE
+	% signal this to user
+	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_DOWN',indication)),
+	send_msg(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPDN_ACK, []);
+
 
 asp_active(#primitive{subsystem = 'MTP', gen_name = 'TRANSFER',
 		      spec_name = request, parameters = Params}, LoopDat) ->
@@ -249,6 +296,12 @@ send_msg_start_tack(LoopDat, State, MsgClass, MsgType, Params) ->
 				 [self(), {timer_expired, t_ack, {MsgClass, MsgType, Params}}]),
 	next_state(State, LoopDat#asp_state{t_ack = Tack}).
 
+send_msg(LoopDat, State, MsgClass, MsgType, Params) ->
+	Module = LoopDat#asp_state.module,
+	% generate and send the respective message
+	Msg = Module:gen_xua_msg(MsgClass, MsgType, Params),
+	send_sctp_to_peer(LoopDat, Msg),
+	next_state(State, LoopDat).
 
 send_prim_to_user(LoopDat, Prim) when is_record(LoopDat, asp_state),
 				      is_record(Prim, primitive) ->
