@@ -137,7 +137,7 @@ asp_down({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP_ACK},
 asp_down({xua_msg, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP},
 	 LoopDat = #asp_state{role=sg}) ->
 	% transition into ASP_INACTIVE
-	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_UP',inidication)),
+	send_prim_to_user(LoopDat, osmo_util:make_prim('M','ASP_UP',indication)),
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP_ACK, []);
 
 asp_down(WhateverElse, LoopDat = #asp_state{module = Module, ext_state = ExtState}) ->
