@@ -139,8 +139,6 @@ send_sctp_to_peer(LoopDat, PktData, StreamId, Ppid) when is_binary(PktData) ->
 	gen_sctp:send(Sock, SndRcvInfo, PktData).
 
 send_prim_to_user(LoopDat, Prim) when is_record(LoopDat, sctp_state), is_record(Prim, primitive) ->
-	%#m3ua_state{user_fun = Fun, user_args = Args} = LoopDat,
-	%Fun(Prim, Args).
 	UserPid = LoopDat#sctp_state.user_pid,
 	UserPid ! Prim.
 
