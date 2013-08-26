@@ -89,10 +89,14 @@ encode_xua_opts([{Iei, Attr}|Tail], Bin) ->
 	OptBin = encode_xua_opt(Iei, Attr),
 	encode_xua_opts(Tail, <<Bin/binary, OptBin/binary>>).
 
+% convert integer parameters to binary before continuing
+encode_xua_opt(Iei, {LenIn, Data}) when is_integer(Iei), is_integer(Data) ->
+	encode_xua_opt(Iei, {LenIn, <<Data:LenIn/big-integer-unit:8>>});
+
 encode_xua_opt(Iei, {LenIn, Data}) when is_integer(Iei), is_binary(Data) ->
 	Length = LenIn + 4,
 	PadLen = get_num_pad_bytes(Length),
-	<<Iei:16/big, Length:16/big, Data/binary, 0:PadLen/integer-unit:8>>;
+	<<Iei:16/big, Length:16/big, Data:LenIn/binary, 0:PadLen/integer-unit:8>>;
 encode_xua_opt(Iei, Data) when is_integer(Iei), is_binary(Data) ->
 	Length = byte_size(Data) + 4,
 	PadLen = get_num_pad_bytes(Length),
