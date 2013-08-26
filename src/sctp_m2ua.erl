@@ -25,7 +25,7 @@
 -include("osmo_util.hrl").
 -include("xua.hrl").
 -include("m2ua.hrl").
--include("m3ua.hrl").
+-include("mtp3.hrl").
 
 -define(M2UA_STREAM_USER,	1).
 
@@ -36,7 +36,8 @@
 -record(m2ua_state, {
 		asp_pid,
 		last_bsn_received,
-		last_fsn_sent
+		last_fsn_sent,
+		role
 	}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -48,7 +49,8 @@ init([Role]) ->
 	AsPid = undefined, % FIXME
 	% we use sua_asp module, as m2ua has no difference here
 	{ok, Asp} = gen_fsm:start_link(xua_asp_fsm, [AsPid, sua_asp, [], Fun, [self()], self(), Role], [{debug, [trace]}]),
-	{ok, #m2ua_state{last_bsn_received=16#ffffff, last_fsn_sent=16#ffffff, asp_pid=Asp}}.
+	{ok, #m2ua_state{last_bsn_received=16#ffffff,
+			last_fsn_sent=16#ffffff, asp_pid=Asp, role=Role}}.
 
 terminate(Reason, _State, _LoopDat) ->
 	io:format("Terminating ~p (Reason ~p)~n", [?MODULE, Reason]),
@@ -82,7 +84,7 @@ prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = confirm}, Sta
 	{ignore, LoopDat};
 
 prim_up(Prim, State, LoopDat) ->
-	% default: forward all primitives to the user 
+	% default: forward all primitives to the user
 	{ok, Prim, LoopDat}.
 
 
@@ -92,27 +94,11 @@ rx_sctp(#sctp_sndrcvinfo{ppid = ?M2UA_PPID}, Data, State, LoopDat) ->
 	M2ua = xua_codec:parse_msg(Data),
 	% FIXME: check sequenc number linearity
 	case M2ua of
-		#xua_msg{msg_class = ?M3UA_MSGC_ASPSM} ->
+		#xua_msg{msg_class = ?M2UA_MSGC_ASPSM} ->
 			gen_fsm:send_event(Asp, M2ua),
 			{ignore, LoopDat};
-		#xua_msg{msg_class = ?M3UA_MSGC_ASPTM} ->
+		#xua_msg{msg_class = ?M2UA_MSGC_ASPTM} ->
 			gen_fsm:send_event(Asp, M2ua),
-			{ignore, LoopDat};
-		#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
-			 msg_type = ?M2UA_MAUP_MSGT_EST_REQ} ->
-			% FIXME: respond with M2UA_MAUP_MSGT_EST_CONF
-			error_logger:error_report(["unimplemented message",
-						   {msg_type, "EST_REQ"}]),
-			{ignore, LoopDat};
-		#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
-			 msg_type = ?M2UA_MAUP_MSGT_REL_REQ} ->
-			% FIXME: respond with M2UA_MAUP_MSGT_REL_CONF
-			error_logger:error_report(["unimplemented message",
-						   {msg_type, "REL_REQ"}]),
-			{ignore, LoopDat};
-		#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
-			 msg_type = ?M2UA_MAUP_MSGT_STATE_REQ} ->
-			handle_m2ua_state_req(M2ua),
 			{ignore, LoopDat};
 		#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
 			 msg_type = ?M2UA_MAUP_MSGT_CONG_IND} ->
@@ -132,10 +118,51 @@ rx_sctp(#sctp_sndrcvinfo{ppid = ?M2UA_PPID}, Data, State, LoopDat) ->
 			Prim = osmo_util:make_prim('MTP','TRANSFER',indication, Mtp3),
 			{ok, Prim, LoopDat};
 		_ ->
-			% do something with link related msgs
-			io:format("M2UA Unknown message ~p in state ~p~n", [M2ua, State]),
-			{ignore, State, LoopDat}
+			rx_sctp(M2ua, State, LoopDat)
 	end.
+
+% SG side
+rx_sctp(#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
+		 msg_type = ?M2UA_MAUP_MSGT_EST_REQ}, State,
+	LoopDat = #m2ua_state{role=sg}) ->
+	% FIXME: respond with M2UA_MAUP_MSGT_EST_CONF
+	error_logger:error_report(["unimplemented message",
+				   {msg_type, "EST_REQ"}]),
+	{ignore, LoopDat};
+rx_sctp(#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
+		 msg_type = ?M2UA_MAUP_MSGT_REL_REQ}, State,
+	LoopDat = #m2ua_state{role=sg}) ->
+	% FIXME: respond with M2UA_MAUP_MSGT_REL_CONF
+	error_logger:error_report(["unimplemented message",
+				   {msg_type, "REL_REQ"}]),
+	{ignore, LoopDat};
+
+rx_sctp(M2ua = #xua_msg{msg_class = ?M2UA_MSGC_MAUP,
+		 msg_type = ?M2UA_MAUP_MSGT_STATE_REQ}, State,
+        LoopDat = #m2ua_state{role=sg})	->
+	handle_m2ua_state_req(M2ua),
+	{ignore, LoopDat};
+
+% ASP side
+rx_sctp(#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
+		 msg_type = ?M2UA_MAUP_MSGT_REL_CONF}, State,
+	LoopDat = #m2ua_state{role=asp}) ->
+	error_logger:error_report(["unimplemented message",
+				   {msg_type, "REL_CONF"}]),
+	{ignore, LoopDat};
+
+rx_sctp(#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
+		msg_type = ?M2UA_MAUP_MSGT_EST_CONF}, State,
+	LoopDat = #m2ua_state{role=asp}) ->
+	error_logger:error_report(["unimplemented message",
+				   {msg_type, "EST_CONF"}]),
+	{ignore, LoopDat};
+
+rx_sctp(M2ua = #xua_msg{}, State, LoopDat) ->
+	% do something with link rel msgs
+	io:format("M2UA Unknown message ~p in state ~p~n", [M2ua, State]),
+	{ignore, LoopDat}.
+
 
 % MTP-TRANSFER.req has arrived at sctp_core, encapsulate+tx it
 mtp_xfer(M2ua, LoopDat) when is_record(M2ua, xua_msg) ->
@@ -143,10 +170,16 @@ mtp_xfer(M2ua, LoopDat) when is_record(M2ua, xua_msg) ->
 	tx_sctp(?M2UA_STREAM_USER, M2uaBin),
 	LoopDat;
 
-mtp_xfer(Mtp3, LoopDat) ->
-	M2ua = #xua_msg{msg_class = ?M2UA_MSGC_MAUP,
+mtp_xfer(Mtp3, LoopDat) when is_record(Mtp3, mtp3_msg) ->
+	MsgBin = mtp3_codec:encode_mtp3_msg(Mtp3),
+	mtp_xfer(MsgBin, LoopDat);
+
+mtp_xfer(Mtp3bin, LoopDat) when is_binary(Mtp3bin) ->
+	M2ua = #xua_msg{version = 1,
+			 msg_class = ?M2UA_MSGC_MAUP,
 			 msg_type = ?M2UA_MAUP_MSGT_DATA,
-			 payload = {?M2UA_P_M2UA_DATA1, length(Mtp3), Mtp3}},
+			 payload = [{?M2UA_P_COM_INTF_ID_INT, {4, 0}},
+				    {?M2UA_P_M2UA_DATA1, {byte_size(Mtp3bin), Mtp3bin}}]},
 	mtp_xfer(M2ua, LoopDat).
 
 state_change(_, established, LoopDat) ->
