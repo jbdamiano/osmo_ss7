@@ -84,6 +84,15 @@ prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = confirm}, Sta
 	Pars = [{?M2UA_P_COM_TRAF_MODE_T, {4, 1}}, {?M2UA_P_COM_INTF_ID_INT, {4, 0}}],
 	gen_fsm:send_event(Asp, osmo_util:make_prim('M','ASP_ACTIVE',request,Pars)),
 	{ignore, LoopDat};
+prim_up(#primitive{subsystem='M', gen_name = 'ASP_ACTIVE', spec_name = confirm}, State, LoopDat) ->
+	% FIXME: start a timer or have a separate FSM about it!
+	M = #xua_msg{version = 1, msg_class = ?M2UA_MSGC_MAUP,
+		     msg_type = ?M2UA_MAUP_MSGT_EST_REQ,
+		     payload = [{?M2UA_P_COM_INTF_ID_INT, {4, 0}}]},
+	LoopDat2 = mtp_xfer(M, LoopDat),
+	{ignore, LoopDat2};
+
+
 
 prim_up(Prim, State, LoopDat) ->
 	% default: forward all primitives to the user
@@ -116,7 +125,8 @@ rx_sctp(#sctp_sndrcvinfo{ppid = ?M2UA_PPID}, Data, State, LoopDat) ->
 			{ignore, LoopDat};
 		#xua_msg{msg_class = ?M2UA_MSGC_MAUP,
 			  msg_type = ?M2UA_MAUP_MSGT_DATA} ->
-			Mtp3 = proplists:get_value(?M2UA_P_M2UA_DATA1, M2ua#xua_msg.payload),
+			{_Len, M3bin} = proplists:get_value(?M2UA_P_M2UA_DATA1, M2ua#xua_msg.payload),
+			Mtp3 = mtp3_codec:parse_mtp3_msg(M3bin),
 			Prim = osmo_util:make_prim('MTP','TRANSFER',indication, Mtp3),
 			{ok, Prim, LoopDat};
 		_ ->
