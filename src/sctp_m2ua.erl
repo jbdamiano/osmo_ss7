@@ -80,7 +80,9 @@ prim_up(#primitive{subsystem='M', gen_name = 'SCTP_ESTABLISH', spec_name = indic
 prim_up(#primitive{subsystem='M', gen_name = 'ASP_UP', spec_name = confirm}, State, LoopDat) ->
 	% confirmation in case of active/connect mode
 	Asp = LoopDat#m2ua_state.asp_pid,
-	gen_fsm:send_event(Asp, osmo_util:make_prim('M','ASP_ACTIVE',request)),
+	% override mode, interface ID  1. FIXME: user-specify interface ID(s)
+	Pars = [{?M2UA_P_COM_TRAF_MODE_T, {4, 1}}, {?M2UA_P_COM_INTF_ID_INT, {4, 0}}],
+	gen_fsm:send_event(Asp, osmo_util:make_prim('M','ASP_ACTIVE',request,Pars)),
 	{ignore, LoopDat};
 
 prim_up(Prim, State, LoopDat) ->
