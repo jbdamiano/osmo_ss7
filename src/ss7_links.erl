@@ -475,7 +475,8 @@ role2sctp_role(sg) ->
 
 
 to_peer({Ip, Port, Pointcode}) ->
-	#sigtran_peer{ip=Ip, port=Port, point_code=Pointcode}.
+	{ok, ParsedIp} = inet:parse_address(Ip),
+	#sigtran_peer{ip=ParsedIp, port=Port, point_code=Pointcode}.
 
 reconfig_linkset({Name, LocalPC, RemotePC}) ->
 	unregister_linkset(Name),
