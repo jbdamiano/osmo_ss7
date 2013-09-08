@@ -60,7 +60,6 @@ behaviour_info(Other) ->
 	  user_pid,
 	  sctp_remote_ip,
 	  sctp_remote_port,
-	  sctp_local_port,
 	  sctp_sock,
 	  sctp_assoc_id,
 	  module,	% callback module
@@ -85,18 +84,20 @@ reconnect_sctp(L = #sctp_state{sctp_remote_ip = Ip, sctp_remote_port = Port, sct
 			reconnect_sctp(L)
 	end.
 
+build_openopt({sctp_local_port, Port}) ->
+	{port, Port};
+build_openopt({sctp_local_ip, Ip}) ->
+	{ip, Ip};
+build_openopt(_) ->
+	[].
+
 init(InitOpts) ->
 	OpenOptsBase = [{active, once}, {reuseaddr, true}],
 	Module = proplists:get_value(module, InitOpts),
 	ModuleArgs = proplists:get_value(module_args, InitOpts),
-	LocalPort = proplists:get_value(sctp_local_port, InitOpts),
 	Role = proplists:get_value(sctp_role, InitOpts),
-	case LocalPort of
-		undefined ->
-			OpenOpts = OpenOptsBase;
-		_ ->
-			OpenOpts = OpenOptsBase ++ [{port, LocalPort}]
-	end,
+	OpenOpts = OpenOptsBase ++ lists:map(fun build_openopt/1, InitOpts),
+	io:format("sctp_open(~p)~n", [OpenOpts]),
 	{ok, SctpSock} = gen_sctp:open(OpenOpts),
 	case Module:init(ModuleArgs) of
 		{ok, ExtState} ->
@@ -104,8 +105,7 @@ init(InitOpts) ->
 					user_pid = proplists:get_value(user_pid, InitOpts),
 					ext_state = ExtState, module = Module,
 					sctp_remote_ip = proplists:get_value(sctp_remote_ip, InitOpts),
-					sctp_remote_port = proplists:get_value(sctp_remote_port, InitOpts),
-					sctp_local_port = LocalPort},
+					sctp_remote_port = proplists:get_value(sctp_remote_port, InitOpts)},
 			case Role of
 				active ->
 					gen_fsm:send_event(self(), osmo_util:make_prim('M','SCTP_ESTABLISH',request));
@@ -201,7 +201,6 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SAC}},
 					NewState = idle
 			end;
 		SacState == addr_unreachable;
-		SacState == shutdown_comp;
 		SacState == cant_assoc	->
 			case LoopDat#sctp_state.role of
 				active ->
@@ -210,6 +209,10 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SAC}},
 				_ ->
 					NewState = idle
 			end,
+			LoopDat2 = LoopDat;
+		SacState == shutdown_comp ->
+			% we already started reconnect in shutdown_event
+			NewState = State,
 			LoopDat2 = LoopDat
 	end,
 	inet:setopts(Socket, [{active, once}]),
