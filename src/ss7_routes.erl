@@ -1,6 +1,6 @@
 % Internal SS7 route database keeping
 
-% (C) 2011 by Harald Welte <laforge@gnumonks.org>
+% (C) 2011-2013 by Harald Welte <laforge@gnumonks.org>
 %
 % All Rights Reserved
 %
@@ -54,9 +54,10 @@
 -export([start_link/0]).
 
 % client functions, may internally talk to our sccp_user server
--export([create_route/3, delete_route/3]).
+-export([create_route/3, delete_route/3, flush_routes/0]).
 -export([dump/0]).
 -export([route_dpc/1]).
+-export([reload_config/0]).
 
 -record(ss7route, {
 	remote_pc_mask,		% {remote_pc, remote_pc_mask}
@@ -90,6 +91,9 @@ create_route(RemotePcIn, RemoteMask, LinksetName) ->
 delete_route(RemotePcIn, RemoteMask, LinksetName) ->
 	RemotePc = osmo_util:pointcode2int(RemotePcIn),
 	gen_server:call(?MODULE, {delete_route, {RemotePc, RemoteMask, LinksetName}}).
+
+flush_routes() ->
+	gen_server:call(?MODULE, flush_routes).
 
 % the lookup functions can directly use the ets named_table from within
 % the client process, no need to go through a synchronous IPC
@@ -138,6 +142,11 @@ handle_call({create_route, {RemotePc, RemoteMask, Name}},
 		{reply, ok, S}
 	end;
 
+handle_call(flush_routes, {_FromPid, _FromRef}, S) ->
+	#sr_state{route_tbl = Tbl} = S,
+	ets:delete_all_objects(Tbl),
+	{reply, ok, S};
+
 handle_call({delete_route, {RemotePc, RemoteMask, _Name}},
 				{_FromPid, _FromRef}, S) ->
 	#sr_state{route_tbl = Tbl} = S,
@@ -154,5 +163,17 @@ terminate(Reason, _S) ->
 	io:format("terminating ~p with reason ~p", [?MODULE, Reason]),
 	ok.
 
+
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
+
+reconfig_route({Dpc, Mask, Dest}) ->
+	case create_route(Dpc, Mask, Dest) of
+		ok -> true;
+		_ -> false
+	end.
+
+reload_config() ->
+	flush_routes(),
+	Routes = osmo_util:get_env(osmo_ss7, routes, []),
+	lists:all(fun reconfig_route/1, Routes).

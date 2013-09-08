@@ -1,6 +1,6 @@
-% Internal SCCP link database keeping
+% Internal SS7 link database keeping
 
-% (C) 2011 by Harald Welte <laforge@gnumonks.org>
+% (C) 2011-2013 by Harald Welte <laforge@gnumonks.org>
 %
 % All Rights Reserved
 %
@@ -36,13 +36,14 @@
 
 -include_lib("osmo_ss7/include/mtp3.hrl").
 -include_lib("osmo_ss7/include/osmo_util.hrl").
+-include_lib("osmo_ss7/include/osmo_ss7.hrl").
 
 % gen_fsm callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
 % our published API
--export([start_link/0]).
+-export([start_link/0, reload_config/0]).
 
 % client functions, may internally talk to our sccp_user server
 -export([register_linkset/3, unregister_linkset/1]).
@@ -471,3 +472,31 @@ role2sctp_role(asp) ->
 	active;
 role2sctp_role(sg) ->
 	passive.
+
+
+to_peer({Ip, Port, Pointcode}) ->
+	#sigtran_peer{ip=Ip, port=Port, point_code=Pointcode}.
+
+reconfig_linkset({Name, LocalPC, RemotePC}) ->
+	unregister_linkset(Name),
+	case register_linkset(LocalPC, RemotePC, Name) of
+		ok -> true;
+		_ -> false
+	end.
+
+reconfig_link({Name, {Lset, Sls}, Type, Local, Remote}) ->
+	% FIXME: not relaod safe!!
+	L = #sigtran_link{type=Type, name=Name, linkset_name=Lset,
+			  sls=Sls, local=to_peer(Local), remote=to_peer(Remote)},
+	case osmo_ss7_sup:add_mtp_link(L) of
+		{ok, _, _} -> true;
+		{ok, _} -> true;
+		{error, _} -> false
+	end.
+
+reload_config() ->
+	Linksets = osmo_util:get_env(osmo_ss7, linksets, []),
+	LinksetsRes =  lists:all(fun reconfig_linkset/1, Linksets),
+	Links = osmo_util:get_env(osmo_ss7, links, []),
+	LinksRes = lists:all(fun reconfig_link/1, Links),
+	LinksetsRes and LinksRes.

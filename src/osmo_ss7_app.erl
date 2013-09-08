@@ -8,7 +8,9 @@
 -export([reload_config/0]).
 
 start(normal, StartArgs) ->
-	supervisor:start_link({local, osmo_ss7_sup}, osmo_ss7_sup, StartArgs).
+	{ok, Pid} = supervisor:start_link({local, osmo_ss7_sup}, osmo_ss7_sup, StartArgs),
+	reload_config(),
+	{ok, Pid}.
 
 
 start_phase(_Phase, _StartType, _PhaseArgs) ->
@@ -27,5 +29,7 @@ config_change(_Changed, _New, _Removed) ->
 
 reload_config() ->
 	osmo_util:reload_config(),
-	% FIXME: do something
+	% fixme: why not in config/change/3 ?
+	ss7_links:reload_config(),
+	ss7_routes:reload_config(),
 	ok.
