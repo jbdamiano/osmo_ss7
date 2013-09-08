@@ -40,6 +40,7 @@
 -export([make_prim/4, make_prim/3]).
 -export([pointcode2int/1, pointcode2int/2, pointcode_fmt/2]).
 -export([asn_val/1]).
+-export([get_env/2, get_env/3]).
 
 -include("osmo_util.hrl").
 
@@ -202,3 +203,20 @@ asn_val([]) ->
 	asn1_NOVALUE;
 asn_val(Foo) ->
 	Foo.
+
+% wrapper around application:get_env() thwowing exception on undef
+get_env(App, Var) when is_atom(App), is_atom(Var) ->
+	case application:get_env(App, Var) of
+		undefined ->
+			throw(undefined);
+		{ok, Value} ->
+			Value
+	end.
+
+get_env(App, Var, Default) ->
+	case application:get_env(App, Var) of
+		undefined ->
+			Default;
+		{ok, Value} ->
+			Value
+	end.
