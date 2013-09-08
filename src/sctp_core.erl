@@ -86,19 +86,21 @@ reconnect_sctp(L = #sctp_state{sctp_remote_ip = Ip, sctp_remote_port = Port, sct
 
 build_openopt({sctp_local_port, Port}) ->
 	{port, Port};
+build_openopt({sctp_local_ip, undefined}) ->
+	[];
 build_openopt({sctp_local_ip, Ip}) ->
 	{ip, Ip};
 build_openopt(_) ->
 	[].
+build_openopts(PropList) ->
+	[{active, once}, {reuseaddr, true}] ++ 
+	lists:flatten(lists:map(fun build_openopt/1, PropList)).
 
 init(InitOpts) ->
-	OpenOptsBase = [{active, once}, {reuseaddr, true}],
 	Module = proplists:get_value(module, InitOpts),
 	ModuleArgs = proplists:get_value(module_args, InitOpts),
 	Role = proplists:get_value(sctp_role, InitOpts),
-	OpenOpts = OpenOptsBase ++ lists:map(fun build_openopt/1, InitOpts),
-	io:format("sctp_open(~p)~n", [OpenOpts]),
-	{ok, SctpSock} = gen_sctp:open(OpenOpts),
+	{ok, SctpSock} = gen_sctp:open(build_openopts(InitOpts)),
 	case Module:init(ModuleArgs) of
 		{ok, ExtState} ->
 			LoopDat = #sctp_state{role = Role, sctp_sock = SctpSock,

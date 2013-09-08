@@ -58,7 +58,6 @@
 	  user_args,
 	  sctp_remote_ip,
 	  sctp_remote_port,
-	  sctp_local_port,
 	  sctp_sock,
 	  sctp_assoc_id
 	}).
@@ -80,22 +79,25 @@ reconnect_sctp(L = #m3ua_state{sctp_remote_ip = Ip, sctp_remote_port = Port, sct
 			reconnect_sctp(L)
 	end.
 
+build_openopt({sctp_local_port, Port}) ->
+	{port, Port};
+build_openopt({sctp_local_ip, undefined}) ->
+	[];
+build_openopt({sctp_local_ip, Ip}) ->
+	{ip, Ip};
+build_openopt(_) ->
+	[].
+build_openopts(PropList) ->
+	[{active, once}, {reuseaddr, true}] ++
+	lists:flatten(lists:map(fun build_openopt/1, PropList)).
+
 init(InitOpts) ->
-	OpenOptsBase = [{active, once}, {reuseaddr, true}],
-	LocalPort = proplists:get_value(sctp_local_port, InitOpts),
-	case LocalPort of
-		undefined ->
-			OpenOpts = OpenOptsBase;
-		_ ->
-			OpenOpts = OpenOptsBase ++ [{port, LocalPort}]
-	end,
-	{ok, SctpSock} = gen_sctp:open(OpenOpts),
+	{ok, SctpSock} = gen_sctp:open(build_openopts(InitOpts)),
 	LoopDat = #m3ua_state{role = asp, sctp_sock = SctpSock,
 				user_fun = proplists:get_value(user_fun, InitOpts),
 				user_args = proplists:get_value(user_args, InitOpts),
 				sctp_remote_ip = proplists:get_value(sctp_remote_ip, InitOpts),
-				sctp_remote_port = proplists:get_value(sctp_remote_port, InitOpts),
-				sctp_local_port = LocalPort},
+				sctp_remote_port = proplists:get_value(sctp_remote_port, InitOpts)},
 	LoopDat2 = reconnect_sctp(LoopDat),
 	{ok, asp_down, LoopDat2}.
 

@@ -57,8 +57,9 @@ init(L = #sigtran_link{type = m3ua, name = Name, linkset_name = LinksetName,
 	#sigtran_peer{ip = LocalIp, port = LocalPort} = Local,
 	#sigtran_peer{ip = RemoteIp, port = RemotePort} = Remote,
 	% start the M3UA link to the SG
-	Opts = [{user_pid, self()}, {sctp_remote_ip, RemoteIp},
-		{sctp_remote_port, RemotePort}, {sctp_local_port, LocalPort},
+	Opts = [{user_pid, self()},
+		{sctp_remote_ip, RemoteIp}, {sctp_remote_port, RemotePort},
+		{sctp_local_ip, LocalIp}, {sctp_local_port, LocalPort},
 		{user_fun, fun m3ua_tx_to_user/2}, {user_args, self()}],
 	{ok, M3uaPid} = m3ua_core:start_link(Opts),
 	% FIXME: register this link with SCCP_SCRC
