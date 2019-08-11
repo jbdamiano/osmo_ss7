@@ -1,6 +1,6 @@
 % ip.access IPA multiplex protocol 
 
-% (C) 2010 by Harald Welte <laforge@gnumonks.org>
+% (C) 2010,2012,2019 by Harald Welte <laforge@gnumonks.org>
 % (C) 2010 by On-Waves
 %
 % All Rights Reserved
@@ -31,6 +31,9 @@
 -define(IPAC_MSGT_ID_GET, 	4).
 -define(IPAC_MSGT_ID_RESP, 	5).
 -define(IPAC_MSGT_ID_ACK, 	6).
+
+-define(IPAC_PROTO_OSMO,	238).
+-define(IPAC_PROTO_CCM,		254).
 
 -export([register_socket/1, register_stream/3, unregister_stream/2,
 	 send/3, connect/3, connect/4, listen_accept_handle/2,
@@ -136,8 +139,11 @@ process_rx_ipa_msg(_S, _StreamMap, <<>>) ->
 process_rx_ipa_msg(S, StreamMap, Data) ->
 	{StreamID, PayloadBin, Trailer} = split_ipa_msg(Data),
 	case StreamID of
-		254 ->
+		?IPAC_PROTO_CCM ->
 			process_rx_ccm_msg(S, StreamID, PayloadBin);
+		?IPAC_PROTO_OSMO ->
+			<<ExtStreamID:8, PayloadExt/binary>> = PayloadBin,
+			deliver_rx_ipa_msg(S, {osmo, ExtStreamID}, StreamMap, PayloadExt);
 		_ ->
 			deliver_rx_ipa_msg(S, StreamID, StreamMap, PayloadBin)
 	end,
@@ -166,8 +172,10 @@ process_tcp_closed(S, StreamMap) ->
 	ok.
 
 % send a binary message through a given Socket / StreamID
+send(Socket, {osmo, StreamIdExt}, DataBin) ->
+	send(Socket, ?IPAC_PROTO_OSMO, [StreamIdExt, DataBin]);
 send(Socket, StreamID, DataBin) ->
-	Size = byte_size(DataBin),
+	Size = iolist_size(DataBin),
 	gen_tcp:send(Socket, iolist_to_binary([<<Size:2/big-unsigned-integer-unit:8>>, StreamID, DataBin])).
 
 
@@ -244,7 +252,7 @@ process_rx_ccm_msg(Socket, StreamID, PayloadBin) ->
 	process_ccm_msg(Socket, StreamID, MsgType, Opts).
 
 send_ccm_id_get(Socket) ->
-	send(Socket, 254, <<?IPAC_MSGT_ID_GET>>).
+	send(Socket, ?IPAC_PROTO_CCM, <<?IPAC_MSGT_ID_GET>>).
 
 % convenience wrapper for interactive use / debugging from the shell
 listen_accept_handle(LPort, Opts) ->
