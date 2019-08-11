@@ -39,7 +39,7 @@
 -define(NODEBUG, 1).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("epcap/include/epcap_net.hrl").
+-include_lib("pkt/include/pkt.hrl").
 
 -record(loop_data, {
 		args,

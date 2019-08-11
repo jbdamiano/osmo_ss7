@@ -12,8 +12,8 @@
 	name		:: string(),
 	linkset_name	:: string(),
 	sls		:: non_neg_integer(),
-	local		:: record(sigtran_peer),
-	remote		:: record(sigtran_peer),
+	local		:: #sigtran_peer{},
+	remote		:: #sigtran_peer{},
 	role		:: role()
 }).
 
