@@ -25,7 +25,8 @@
 		]},
 	 {registered, [osmo_ss7_app]},
 	 {mod, {osmo_ss7_app, []}},
-	 {applications, []},
+	 {applications, [kernel,
+			 stdlib]},
 	 {env, [
 	  ]}
 ]}.
