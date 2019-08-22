@@ -261,15 +261,15 @@ loop(S, StreamMap) ->
 	end.
 
 % Respond with PONG to PING
-process_ccm_msg(Socket, StreamID, ?IPAC_MSGT_PING, _) ->
+process_ccm_msg(Socket, StreamID, ping, _) ->
 	io:format("Socket ~p Stream ~p: PING -> PONG~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_PONG>>);
 % Simply respond to ID_ACK with ID_ACK
-process_ccm_msg(Socket, StreamID, ?IPAC_MSGT_ID_ACK, _) ->
+process_ccm_msg(Socket, StreamID, id_ack, _) ->
 	io:format("Socket ~p Stream ~p: ID_ACK -> ID_ACK~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_ID_ACK>>);
 % Simply respond to ID_RESP with ID_ACK
-process_ccm_msg(Socket, StreamID, ?IPAC_MSGT_ID_RESP, _) ->
+process_ccm_msg(Socket, StreamID, id_resp, _) ->
 	io:format("Socket ~p Stream ~p: ID_RESP -> ID_ACK~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_ID_ACK>>);
 % Default message handler for unknown messages
@@ -279,7 +279,7 @@ process_ccm_msg(Socket, StreamID, MsgType, Opts) ->
 
 % process an incoming CCM message (Stream ID 254)
 process_rx_ccm_msg(Socket, StreamID, PayloadBin) ->
-	[MsgType|Opts] = binary:bin_to_list(PayloadBin),
+	{MsgType, Opts} = ipa_proto_ccm:decode(PayloadBin),
 	process_ccm_msg(Socket, StreamID, MsgType, Opts).
 
 send_ccm_id_get(Socket) ->
