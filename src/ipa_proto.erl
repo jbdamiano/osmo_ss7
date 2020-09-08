@@ -99,33 +99,35 @@ set_ccm_options(Socket, CcmOptions) ->
 
 % unblock the socket from further processing
 unblock(Socket) ->
-	send_ccm_id_get(Socket),
 	call_sync_sock(Socket, {ipa_unblock, Socket}).
 
-
 % server-side handler for unregister_stream()
-request({ipa_reg_stream, Socket, StreamID, Pid}) ->
+request({ipa_reg_stream, Socket, StreamID, Pid}, _) ->
 	io:format("Registering handler ~p for socket ~p Stream ~p~n", [Pid, Socket, StreamID]),
 	[IpaSock] = ets:lookup(ipa_sockets, Socket),
 	ets:insert_new(IpaSock#ipa_socket.streamTbl, {{Socket, StreamID}, Pid});
 % server-side handler for unregister_stream()
-request({ipa_unreg_stream, Socket, StreamID}) ->
+request({ipa_unreg_stream, Socket, StreamID}, _) ->
 	io:format("Unregistering handler for Socket ~p Stream ~p~n", [Socket, StreamID]),
 	[IpaSock] = ets:lookup(ipa_sockets, Socket),
 	ets:delete(IpaSock#ipa_socket.streamTbl, {Socket, StreamID});
 % server-side handler for controlling_process()
-request({ipa_ctrl_proc, Socket, StreamID, NewPid}) ->
+request({ipa_ctrl_proc, Socket, StreamID, NewPid}, _) ->
 	io:format("Changing handler for socket ~p Stream ~p~n", [Socket, StreamID]),
 	[IpaSock] = ets:lookup(ipa_sockets, Socket),
 	ets:delete(IpaSock#ipa_socket.streamTbl, {Socket, StreamID}),
 	ets:insert_new(IpaSock#ipa_socket.streamTbl, {{Socket, StreamID}, NewPid});
 % server-side handler for set_ccm_options()
 % set ccm protocol metadata options reported with connection setup.
-request({ipa_set_ccm_options, Socket, CcmOptions}) ->
+request({ipa_set_ccm_options, Socket, CcmOptions}, _) ->
 	io:format("Setting ccm options for socket ~p to ~p~n", [Socket, CcmOptions]),
 	{ccm_options, CcmOptions};
 % server-side handler for unblock()
-request({ipa_unblock, Socket}) ->
+request({ipa_unblock, Socket}, CcmOptions) ->
+	if
+		CcmOptions#ipa_ccm_options.initiate_ack -> send_ccm_id_ack(Socket);
+		true -> send_ccm_id_get(Socket)
+	end,
 	io:format("Unblocking socket ~p~n", [Socket]),
 	%[IpaSock] = ets:lookup(ipa_sockets, Socket),
 	Ret = inet:setopts(Socket, [{active, once}]),
@@ -253,7 +255,7 @@ init_sock(Socket, CallingPid) ->
 loop(S, StreamMap, CcmOptions) ->
 	receive
 		{request, From, Request} ->
-			case ipa_proto:request(Request) of
+			case ipa_proto:request(Request, CcmOptions) of
 				{ccm_options, NewCcmOptions} ->
 					NextCcmOptions = NewCcmOptions,
 					Reply = ok;
@@ -282,10 +284,17 @@ loop(S, StreamMap, CcmOptions) ->
 process_ccm_msg(Socket, StreamID, _, ping, _) ->
 	io:format("Socket ~p Stream ~p: PING -> PONG~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_PONG>>);
-% Simply respond to ID_ACK with ID_ACK
-process_ccm_msg(Socket, StreamID, _, id_ack, _) ->
-	io:format("Socket ~p Stream ~p: ID_ACK -> ID_ACK~n", [Socket, StreamID]),
-	send(Socket, StreamID, <<?IPAC_MSGT_ID_ACK>>);
+% Respond to ID_ACK with ID_ACK if this instance did not initiate
+process_ccm_msg(Socket, StreamID, CcmOptions, id_ack, _) ->
+	if
+		CcmOptions#ipa_ccm_options.initiate_ack /= true ->
+			% Only respond to an ack if this instance did
+			% not initiate to prevent an infinite ack loop.
+			io:format("Socket ~p Stream ~p: ID_ACK -> ID_ACK~n", [Socket, StreamID]),
+			send(Socket, StreamID, <<?IPAC_MSGT_ID_ACK>>);
+		true ->
+			io:format("Socket ~p Stream ~p: ID_ACK -> None~n", [Socket, StreamID])
+	end;
 % Simply respond to ID_RESP with ID_ACK
 process_ccm_msg(Socket, StreamID, _, id_resp, _) ->
 	io:format("Socket ~p Stream ~p: ID_RESP -> ID_ACK~n", [Socket, StreamID]),
@@ -318,6 +327,9 @@ process_rx_ccm_msg(Socket, StreamID, CcmOptions, PayloadBin) ->
 
 send_ccm_id_get(Socket) ->
 	send(Socket, ?IPAC_PROTO_CCM, <<?IPAC_MSGT_ID_GET>>).
+
+send_ccm_id_ack(Socket) ->
+	send(Socket, ?IPAC_PROTO_CCM, <<?IPAC_MSGT_ID_ACK>>).
 
 % convenience wrapper for interactive use / debugging from the shell
 listen_accept_handle(LPort, Opts) ->

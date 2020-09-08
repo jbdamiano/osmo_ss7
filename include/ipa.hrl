@@ -26,7 +26,7 @@
 			  unit_type,
 			  equipment_version,
 			  sw_version,
-			  unit_name
-			 }).
+			  unit_name,
+			  initiate_ack=false}).
 
 -endif.
