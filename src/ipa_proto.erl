@@ -23,6 +23,8 @@
 -author('Harald Welte <laforge@gnumonks.org>').
 -compile(export_all).
 
+-include("ipa.hrl").
+
 -define(TIMEOUT, 1000).
 -define(IPA_SOCKOPTS, [binary, {packet, 0}, {reuseaddr, true}, {active, false}]).
 
@@ -91,6 +93,10 @@ unregister_stream(Socket, StreamID) ->
 controlling_process(Socket, StreamID, NewPid) ->
 	call_sync_sock(Socket, {ipa_ctrl_proc, Socket, StreamID, NewPid}).
 
+% Set the metadata required for the ipa CCM sub-protocol.
+set_ccm_options(Socket, CcmOptions) ->
+	call_sync_sock(Socket, {ipa_set_ccm_options, Socket, CcmOptions}).
+
 % unblock the socket from further processing
 unblock(Socket) ->
 	send_ccm_id_get(Socket),
@@ -113,6 +119,11 @@ request({ipa_ctrl_proc, Socket, StreamID, NewPid}) ->
 	[IpaSock] = ets:lookup(ipa_sockets, Socket),
 	ets:delete(IpaSock#ipa_socket.streamTbl, {Socket, StreamID}),
 	ets:insert_new(IpaSock#ipa_socket.streamTbl, {{Socket, StreamID}, NewPid});
+% server-side handler for set_ccm_options()
+% set ccm protocol metadata options reported with connection setup.
+request({ipa_set_ccm_options, Socket, CcmOptions}) ->
+	io:format("Setting ccm options for socket ~p to ~p~n", [Socket, CcmOptions]),
+	{ccm_options, CcmOptions};
 % server-side handler for unblock()
 request({ipa_unblock, Socket}) ->
 	io:format("Unblocking socket ~p~n", [Socket]),
@@ -167,20 +178,20 @@ try_encode(StreamID, Data) ->
 	end.
 
 % process (split + deliver) an incoming IPA message
-process_rx_ipa_msg(_S, _StreamMap, <<>>) ->
+process_rx_ipa_msg(_S, _StreamMap, _, <<>>) ->
 	ok;
-process_rx_ipa_msg(S, StreamMap, Data) ->
+process_rx_ipa_msg(S, StreamMap, CcmOptions, Data) ->
 	{StreamID, PayloadBin, Trailer} = split_ipa_msg(Data),
 	case StreamID of
 		?IPAC_PROTO_CCM ->
-			process_rx_ccm_msg(S, StreamID, PayloadBin);
+			process_rx_ccm_msg(S, StreamID, CcmOptions, PayloadBin);
 		?IPAC_PROTO_OSMO ->
 			<<ExtStreamID:8, PayloadExt/binary>> = PayloadBin,
 			deliver_rx_ipa_msg(S, {osmo, ExtStreamID}, StreamMap, PayloadExt);
 		_ ->
 			deliver_rx_ipa_msg(S, StreamID, StreamMap, PayloadBin)
 	end,
-	process_rx_ipa_msg(S, StreamMap, Trailer).
+	process_rx_ipa_msg(S, StreamMap, CcmOptions, Trailer).
 
 send_close_signal([]) ->
 	ok;
@@ -237,22 +248,29 @@ init_sock(Socket, CallingPid) ->
 	StreamMap = ets:new(stream_map, [set]),
 	ets:insert(ipa_sockets, #ipa_socket{socket=Socket, ipaPid=self(), streamTbl=StreamMap}),
 	CallingPid ! {ipa_init_sock_done, Socket},
-	loop(Socket, StreamMap).
+	loop(Socket, StreamMap, #ipa_ccm_options{}).
 
-loop(S, StreamMap) ->
+loop(S, StreamMap, CcmOptions) ->
 	receive
 		{request, From, Request} ->
-			Reply = ipa_proto:request(Request),
+			case ipa_proto:request(Request) of
+				{ccm_options, NewCcmOptions} ->
+					NextCcmOptions = NewCcmOptions,
+					Reply = ok;
+				EmbeddedReply ->
+					NextCcmOptions = CcmOptions,
+					Reply = EmbeddedReply
+			end,
 			ipa_proto:reply(From, Reply),
-			ipa_proto:loop(S, StreamMap);
+			ipa_proto:loop(S, StreamMap, NextCcmOptions);
 		{ipa_send, S, StreamId, Data} ->
 			send(S, StreamId, Data),
-			ipa_proto:loop(S, StreamMap);
+			ipa_proto:loop(S, StreamMap, CcmOptions);
 		{tcp, S, Data} ->
 			% process incoming IPA message and mark socket active once more
-			ipa_proto:process_rx_ipa_msg(S, StreamMap, Data),
+			ipa_proto:process_rx_ipa_msg(S, StreamMap, CcmOptions, Data),
 			inet:setopts(S, [{active, once}]),
-			ipa_proto:loop(S, StreamMap);
+			ipa_proto:loop(S, StreamMap, CcmOptions);
 		{tcp_closed, S} ->
 			io:format("Socket ~w closed [~w]~n", [S,self()]),
 			ipa_proto:process_tcp_closed(S, StreamMap),
@@ -261,26 +279,42 @@ loop(S, StreamMap) ->
 	end.
 
 % Respond with PONG to PING
-process_ccm_msg(Socket, StreamID, ping, _) ->
+process_ccm_msg(Socket, StreamID, _, ping, _) ->
 	io:format("Socket ~p Stream ~p: PING -> PONG~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_PONG>>);
 % Simply respond to ID_ACK with ID_ACK
-process_ccm_msg(Socket, StreamID, id_ack, _) ->
+process_ccm_msg(Socket, StreamID, _, id_ack, _) ->
 	io:format("Socket ~p Stream ~p: ID_ACK -> ID_ACK~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_ID_ACK>>);
 % Simply respond to ID_RESP with ID_ACK
-process_ccm_msg(Socket, StreamID, id_resp, _) ->
+process_ccm_msg(Socket, StreamID, _, id_resp, _) ->
 	io:format("Socket ~p Stream ~p: ID_RESP -> ID_ACK~n", [Socket, StreamID]),
 	send(Socket, StreamID, <<?IPAC_MSGT_ID_ACK>>);
+% Simply respond to ID_GET with ID_RESP
+process_ccm_msg(Socket, StreamID, CcmOptions, id_req, _) ->
+	io:format("Socket ~p Stream ~p: ID_GET -> ID_RESP~n", [Socket, StreamID]),
+	CcmBin = ipa_proto_ccm:encode(
+		{id_resp,
+		 [{string,serial_nr,CcmOptions#ipa_ccm_options.serial_number},
+		  {string,unit_id,CcmOptions#ipa_ccm_options.unit_id},
+		  {string,mac_address,CcmOptions#ipa_ccm_options.mac_address},
+		  {string,location,CcmOptions#ipa_ccm_options.location},
+		  {string,unit_type,CcmOptions#ipa_ccm_options.unit_type},
+		  {string,equip_vers,CcmOptions#ipa_ccm_options.equipment_version},
+		  {string,sw_version,CcmOptions#ipa_ccm_options.sw_version},
+		  {string,unit_name,CcmOptions#ipa_ccm_options.unit_name}
+		 ]}),
+	send(Socket, StreamID, CcmBin);
+
 % Default message handler for unknown messages
-process_ccm_msg(Socket, StreamID, MsgType, Opts) ->
+process_ccm_msg(Socket, StreamID, _, MsgType, Opts) ->
 	io:format("Socket ~p Stream ~p: Unknown CCM message type ~p Opts ~p~n",
 		  [Socket, StreamID, MsgType, Opts]).
 
 % process an incoming CCM message (Stream ID 254)
-process_rx_ccm_msg(Socket, StreamID, PayloadBin) ->
+process_rx_ccm_msg(Socket, StreamID, CcmOptions, PayloadBin) ->
 	{MsgType, Opts} = ipa_proto_ccm:decode(PayloadBin),
-	process_ccm_msg(Socket, StreamID, MsgType, Opts).
+	process_ccm_msg(Socket, StreamID, CcmOptions, MsgType, Opts).
 
 send_ccm_id_get(Socket) ->
 	send(Socket, ?IPAC_PROTO_CCM, <<?IPAC_MSGT_ID_GET>>).
