@@ -3,6 +3,7 @@
 	 {vsn, "1"},
 	 {modules, [	osmo_util,
 			ipa_proto,
+			ipa_proto_ccm,
 			sctp_core,
 			bssmap_codec,
 			isup_codec,
