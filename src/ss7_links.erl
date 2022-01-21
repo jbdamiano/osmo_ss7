@@ -96,10 +96,11 @@
 % initialization code
 
 start_link() ->
-	%~ gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
+    %~ gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_Arg) ->
+	io:format("init ss7 links~n"),
 	LinksetTbl = ets:new(ss7_linksets, [ordered_set, named_table,
 					     {keypos, #slinkset.name}]),
 	ServiceTbl = ets:new(mtp3_services, [ordered_set, named_table,
@@ -110,8 +111,10 @@ init(_Arg) ->
 	LinkTbl = ets:new(ss7_link_table, [ordered_set, named_table,
 					    {keypos, #slink.key}]),
 	process_flag(trap_exit, true),
+	io:format("done ss7 links~n"),
 	{ok, #su_state{linkset_tbl = LinksetTbl, link_tbl = LinkTbl,
 			service_tbl = ServiceTbl}}.
+	
 
 stop() ->
     gen_server:cast(?MODULE, stop).
