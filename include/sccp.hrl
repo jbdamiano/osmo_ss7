@@ -66,6 +66,8 @@
 -define(SCCP_SSN_RES_NAT,	2#000001100).
 -define(SCCP_SSN_BISDN,		2#000001101).
 -define(SCCP_SSN_TC_TEST,	2#000001110).
+-define(SCCP_SSN_SGSN,      2#010010101).
+-define(SCCP_SSN_CAP,       2#010010010).
 
 % According to Q.731 Section 3.4.2.3.1
 -define(SCCP_NAI_SUBSCRIBER,	2#00000001).

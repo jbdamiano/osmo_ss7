@@ -326,7 +326,11 @@ encode_sccp_addr(#sccp_addr{res_nat_use = ResNatUse,
 	{PCind, PCbin} = encode_pc(PointCode),
 	ResNatOut = undef_or_true(ResNatUse),
 	RoutIndOut = undef_or_true(RoutInd),
-	<<ResNatOut:1, RoutIndOut:1, GTind:4, SSNind:1, PCind:1, PCbin/binary, SSNbin/binary, GTbin/binary>>.
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % removed pointcode
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	%<<ResNatOut:1, RoutIndOut:1, GTind:4, SSNind:1, PCind:1, PCbin/binary, SSNbin/binary, GTbin/binary>>.
+    <<ResNatOut:1, RoutIndOut:1, GTind:4, SSNind:1, 0:1, SSNbin/binary, GTbin/binary>>.
 
 
 encode_sccp_opt({AddrTag, AddrVal}) when AddrTag == ?SCCP_PNC_CALLED_PARTY_ADDRESS;

@@ -14,7 +14,10 @@
 	sls		:: non_neg_integer(),
 	local		:: #sigtran_peer{},
 	remote		:: #sigtran_peer{},
-	role		:: role()
+	role		:: role(),
+	asp_id          :: integer(),
+	route_ctx       :: integer(),
+	net_app         :: integer()
 }).
 
 

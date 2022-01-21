@@ -86,10 +86,16 @@ parse_m3ua_opt(Opt, Msg) ->
 
 
 encode_m3ua_msg(#m3ua_msg{version = Version, msg_class = MsgClass,
+			  msg_type = ?M3UA_MSGT_ASPSM_ASPUP, payload = OptList}) ->
+	OptBin = encode_m3ua_opts(OptList),
+    MsgLen = byte_size(OptBin) + 8,
+	<<Version:8, 0:8, MsgClass:8, ?M3UA_MSGT_ASPSM_ASPUP:8, MsgLen:32/big, OptBin/binary>>;
+encode_m3ua_msg(#m3ua_msg{version = Version, msg_class = MsgClass,
 			  msg_type = MsgType, payload = OptList}) ->
 	OptBin = encode_m3ua_opts(OptList),
-	MsgLen = byte_size(OptBin) + 8,
+    MsgLen = byte_size(OptBin) + 8,
 	<<Version:8, 0:8, MsgClass:8, MsgType:8, MsgLen:32/big, OptBin/binary>>.
+
 
 encode_m3ua_opts(OptList) when is_list(OptList) ->
 	encode_m3ua_opts(OptList, <<>>).
@@ -114,6 +120,8 @@ encode_m3ua_opt(?M3UA_IEI_PROTOCOL_DATA, Mtp3) when is_record(Mtp3, mtp3_msg) ->
 	end,
 	PayBin = <<Opc:32/big, Dpc:32/big, Si:8, Ni:8, MpD:8, Sls:8, Payload/binary>>,
 	encode_m3ua_opt(?M3UA_IEI_PROTOCOL_DATA, PayBin);
+encode_m3ua_opt(Iei, Data) when is_integer(Iei), is_binary(Data), Data == <<>> ->
+	<<>>;
 encode_m3ua_opt(Iei, Data) when is_integer(Iei), is_binary(Data) ->
 	Length = byte_size(Data) + 4,
 	PadLen = get_num_pad_bytes(Length),

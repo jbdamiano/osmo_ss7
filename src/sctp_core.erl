@@ -222,7 +222,7 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SAC}},
 
 handle_info({sctp, Socket, RemoteIp, RemotePort, {[Anc], Data}}, State, LoopDat) ->
 	Module = LoopDat#sctp_state.module,
-	io:format("SCTP rx data: ~p ~p~n", [Anc, Data]),
+	%~ io:format("SCTP rx data: ~p ~p~n", [Anc, Data]),
 	% process incoming SCTP data
 	if Socket == LoopDat#sctp_state.sctp_sock,
 	   RemoteIp == LoopDat#sctp_state.sctp_remote_ip,

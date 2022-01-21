@@ -48,10 +48,10 @@
 -include_lib("osmo_ss7/include/mtp3.hrl").
 
 % gen_fsm callbacks
--export([init/1, handle_call/3, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 % our published API
--export([start_link/0]).
+-export([start_link/0, stop/0]).
 
 % client functions, may internally talk to our sccp_user server
 -export([create_route/3, delete_route/3, flush_routes/0]).
@@ -71,13 +71,17 @@
 % initialization code
 
 start_link() ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
+	%~ gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_Arg) ->
 	RouteTbl = ets:new(ss7_routes, [ordered_set, named_table,
 			     {keypos, #ss7route.remote_pc_mask}]),
 	process_flag(trap_exit, true),
 	{ok, #sr_state{route_tbl = RouteTbl}}.
+    
+stop() ->
+    gen_server:cast(?MODULE, stop).
 
 % client side API
 
@@ -129,6 +133,9 @@ dump_single_route(#ss7route{remote_pc_mask = {Pc, Mask},
 		  [PcTuple, MaskTuple, Name]).
 
 % server side code
+
+handle_cast(stop, State) ->
+    {stop, normal, State}.
 
 handle_call({create_route, {RemotePc, RemoteMask, Name}},
 				{_FromPid, _FromRef}, S) ->

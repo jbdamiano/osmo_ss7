@@ -43,11 +43,12 @@
 	 terminate/2, code_change/3]).
 
 % our published API
--export([start_link/0, reload_config/0]).
+-export([start_link/0, reload_config/0, stop/0]).
 
 % client functions, may internally talk to our sccp_user server
 -export([register_linkset/3, unregister_linkset/1]).
 -export([register_link/3, unregister_link/2, set_link_state/3]).
+-export([get_link_state/2]).
 -export([bind_service/2, unbind_service/1]).
 
 -export([get_pid_for_link/2, get_pid_for_dpc_sls/2,
@@ -95,7 +96,8 @@
 % initialization code
 
 start_link() ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
+	%~ gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_Arg) ->
 	LinksetTbl = ets:new(ss7_linksets, [ordered_set, named_table,
@@ -111,6 +113,11 @@ init(_Arg) ->
 	{ok, #su_state{linkset_tbl = LinksetTbl, link_tbl = LinkTbl,
 			service_tbl = ServiceTbl}}.
 
+stop() ->
+    gen_server:cast(?MODULE, stop).
+
+
+    
 % client side API
 
 % all write operations go through gen_server:call(), as only the ?MODULE
@@ -144,6 +151,9 @@ unregister_link(LinksetName, Sls) ->
 
 set_link_state(LinksetName, Sls, State) ->
 	gen_server:call(?MODULE, {set_link_state, {LinksetName, Sls, State}}).
+
+get_link_state(LinksetName, Sls) ->
+    gen_server:call(?MODULE, {get_link_state, {LinksetName, Sls}}).
 
 -spec bind_service(non_neg_integer(), string()) ->
 					ok | error().
@@ -389,6 +399,15 @@ handle_call({set_link_state, {LsName, Sls, State}}, {FromPid, _}, S) ->
 		{reply, ok, S}
 	end;
 
+handle_call({get_link_state, {LsName, Sls}}, {FromPid, _}, S) ->
+    #su_state{link_tbl = LinkTbl} = S,
+	case ets:lookup(LinkTbl, {LsName, Sls}) of
+	    [] ->
+		{reply, {error, no_such_link}, S};
+	    [Link] -> 
+        {reply, {ok, Link#slink.state}, S}
+    end;
+
 handle_call({bind_service, {SNum, SName}}, {FromPid, _},
 	    #su_state{service_tbl = ServTbl} = S) ->
 	NewServ = #service{name = SName, service_nr = SNum,
@@ -408,6 +427,9 @@ handle_call({unbind_service, {SNum}}, {FromPid, _},
 	ets:delete(ServTbl, SNum),
 	{reply, ok, S}.
 
+
+handle_cast(stop, State) ->
+    {stop, normal, State};
 handle_cast(Info, S) ->
 	error_logger:error_report(["unknown handle_cast",
 				  {module, ?MODULE},
@@ -432,8 +454,11 @@ handle_info(Info, S) ->
 				  {info, Info}, {state, S}]),
 	{noreply, S}.
 
-terminate(Reason, _S) ->
+terminate(Reason, S) ->
 	io:format("terminating ~p with reason ~p", [?MODULE, Reason]),
+    ets:delete(S#su_state.linkset_tbl),
+    ets:delete(S#su_state.link_tbl),
+    ets:delete(S#su_state.service_tbl),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->

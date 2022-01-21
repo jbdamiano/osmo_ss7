@@ -40,7 +40,7 @@
 -include("sccp.hrl").
 -include("m3ua.hrl").
 
--export([start_link/1]).
+-export([start_link/1, stop/0]).
 
 -export([init/1, terminate/3, code_change/4, handle_event/3, handle_info/3]).
 
@@ -59,11 +59,18 @@
 	  sctp_remote_ip,
 	  sctp_remote_port,
 	  sctp_sock,
-	  sctp_assoc_id
+	  sctp_assoc_id,
+      asp_id,
+      net_app,
+      route_ctx
 	}).
 
 start_link(InitOpts) ->
-	gen_fsm:start_link(?MODULE, InitOpts, [{debug, [trace]}]).
+	%~ gen_fsm:start_link(?MODULE, InitOpts, [{debug, [trace]}]).
+	gen_fsm:start_link(?MODULE, InitOpts, []).
+
+stop() ->
+    gen_fsm:send_all_state_event(?MODULE, stop).
 
 reconnect_sctp(L = #m3ua_state{sctp_remote_ip = Ip, sctp_remote_port = Port, sctp_sock = Sock}) ->
 	timer:sleep(1*1000),
@@ -91,13 +98,24 @@ build_openopts(PropList) ->
 	[{active, once}, {reuseaddr, true}] ++
 	lists:flatten(lists:map(fun build_openopt/1, PropList)).
 
+build_extarg(Arg, _) when Arg == none ->
+    <<>>;
+build_extarg(Arg, Len) ->
+    <<Arg:Len>>.
+
 init(InitOpts) ->
 	{ok, SctpSock} = gen_sctp:open(build_openopts(InitOpts)),
+    Asp_id = proplists:get_value(asp_id, InitOpts),
+    Route_ctx = proplists:get_value(route_ctx, InitOpts),
+    Net_app = proplists:get_value(net_app, InitOpts),
 	LoopDat = #m3ua_state{role = asp, sctp_sock = SctpSock,
 				user_fun = proplists:get_value(user_fun, InitOpts),
 				user_args = proplists:get_value(user_args, InitOpts),
 				sctp_remote_ip = proplists:get_value(sctp_remote_ip, InitOpts),
-				sctp_remote_port = proplists:get_value(sctp_remote_port, InitOpts)},
+				sctp_remote_port = proplists:get_value(sctp_remote_port, InitOpts),
+                asp_id = build_extarg(Asp_id,32),
+                route_ctx = build_extarg(Route_ctx,32),
+                net_app = build_extarg(Net_app,32)},
 	LoopDat2 = reconnect_sctp(LoopDat),
 	{ok, asp_down, LoopDat2}.
 
@@ -145,6 +163,8 @@ send_msg_start_tack(LoopDat, State, MsgClass, MsgType, Params) ->
 
 
 
+handle_event(stop, State, LoopDat) ->
+    {stop, normal, LoopDat};
 handle_event(Event, State, LoopDat) ->
 	io:format("Unknown Event ~p in state ~p~n", [Event, State]),
 	{next_state, State, LoopDat}.
@@ -191,13 +211,16 @@ handle_info({sctp, Socket, _RemoteIp, _RemotePort, {ANC, SPC}},
 			{State, LoopDat};
 		addr_made_prim ->
 			% FIXME: do we need to change remote_ip in our LoopDat?
+			{State, LoopDat};
+        addr_confirmed ->
+            % FIXME: do we need to change remote_ip in our LoopDat?
 			{State, LoopDat}
 	end,
 	inet:setopts(Socket, [{active, once}]),
 	{next_state, NewState, LoopDat2};
 
 handle_info({sctp, Socket, RemoteIp, RemotePort, {[Anc], Data}}, State, LoopDat) ->
-	io:format("SCTP rx data: ~p ~p~n", [Anc, Data]),
+	%~ io:format("SCTP rx data: ~p ~p~n", [Anc, Data]),
 	% process incoming SCTP data 
 	if Socket == LoopDat#m3ua_state.sctp_sock,
 	   RemoteIp == LoopDat#m3ua_state.sctp_remote_ip,
@@ -218,13 +241,19 @@ handle_info({sctp, Socket, RemoteIp, RemotePort, {_Anc, Data}}, _State, LoopDat)
 	{next_state, asp_down, LoopDat}.
 
 
-
 asp_down(#primitive{subsystem = 'M', gen_name = 'ASP_UP',
 		    spec_name = request, parameters = _Params}, LoopDat) ->
 	% M-ASP_UP.req from user, generate message and send to remote peer
-	send_msg_start_tack(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, []);
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % added asp identifier
+    % added network appearance
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	send_msg_start_tack(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, 
+                [{?M3UA_IEI_ASP_ID, LoopDat#m3ua_state.asp_id}]);
 asp_down({timer_expired, t_ack, {?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, Params}}, LoopDat) ->
-	send_msg_start_tack(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, Params);
+	send_msg_start_tack(LoopDat, asp_down, ?M3UA_MSGC_ASPSM, ?M3UA_MSGT_ASPSM_ASPUP, 
+                lists:append([{?M3UA_IEI_NET_APPEARANCE, LoopDat#m3ua_state.net_app}, 
+                    {?M3UA_IEI_ASP_ID, LoopDat#m3ua_state.asp_id}], Params));
 
 asp_down(#m3ua_msg{msg_class = ?M3UA_MSGC_ASPSM,
 		   msg_type = ?M3UA_MSGT_ASPSM_ASPUP_ACK}, LoopDat) ->
@@ -240,8 +269,14 @@ asp_down(M3uaMsg, LoopDat) when is_record(M3uaMsg, m3ua_msg) ->
 asp_inactive(#primitive{subsystem = 'M', gen_name = 'ASP_ACTIVE',
 			spec_name = request, parameters = _Params}, LoopDat) ->
 	% M-ASP_ACTIVE.req from user, generate message and send to remote peer
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % added routing context
+    % added network appearance
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC,
-			   [{?M3UA_IEI_TRAF_MODE_TYPE, <<0,0,0,1>>}]);
+			   [{?M3UA_IEI_NET_APPEARANCE, LoopDat#m3ua_state.net_app}, 
+                {?M3UA_IEI_TRAF_MODE_TYPE, <<0,0,0,2>>},
+                {?M3UA_IEI_ROUTE_CTX, LoopDat#m3ua_state.route_ctx}]);
 
 asp_inactive({timer_expired, t_ack, {?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC, Params}}, LoopDat) ->
 	send_msg_start_tack(LoopDat, asp_inactive, ?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPAC, Params);
@@ -310,7 +345,10 @@ asp_active({timer_expired, t_ack, {?M3UA_MSGC_ASPTM, ?M3UA_MSGT_ASPTM_ASPIA, Par
 asp_active(#primitive{subsystem = 'MTP', gen_name = 'TRANSFER',
 		      spec_name = request, parameters = Params}, LoopDat) ->
 	% MTP-TRANSFER.req from user app: Send message to remote peer
-	OptList = [{?M3UA_IEI_PROTOCOL_DATA, Params}],
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % added routing context
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	OptList = [{?M3UA_IEI_ROUTE_CTX, LoopDat#m3ua_state.route_ctx}, {?M3UA_IEI_PROTOCOL_DATA, Params}],
 	Msg = #m3ua_msg{version = 1, msg_class = ?M3UA_MSGC_TRANSFER,
 			msg_type = ?M3UA_MSGT_XFR_DATA,
 			payload = OptList},

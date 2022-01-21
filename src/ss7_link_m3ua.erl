@@ -41,8 +41,9 @@
 -include_lib("osmo_ss7/include/osmo_ss7.hrl").
 
 -export([start_link/1, init/1]).
-
--export([handle_cast/2]).
+-export([stop/0]).
+-export([handle_cast/2, terminate/2]).
+-export([get_link_state/1]).
 
 -record(loop_dat, {
 	 m3ua_pid,
@@ -50,16 +51,20 @@
 	}).
 
 start_link(Args) ->
-	gen_server:start_link(?MODULE, Args, [{debug, [trace]}]).
+	%~ gen_server:start_link(?MODULE, Args, [{debug, [trace]}]).
+	gen_server:start_link(?MODULE, Args, []).
 
 init(L = #sigtran_link{type = m3ua, name = Name, linkset_name = LinksetName,
-		       sls = Sls, local = Local, remote = Remote}) ->
+		       sls = Sls, local = Local, remote = Remote, asp_id = Asp_id,
+               route_ctx = Route_ctx, net_app = Net_app}) ->
 	#sigtran_peer{ip = LocalIp, port = LocalPort} = Local,
 	#sigtran_peer{ip = RemoteIp, port = RemotePort} = Remote,
 	% start the M3UA link to the SG
 	Opts = [{user_pid, self()},
 		{sctp_remote_ip, RemoteIp}, {sctp_remote_port, RemotePort},
 		{sctp_local_ip, LocalIp}, {sctp_local_port, LocalPort},
+        {asp_id, Asp_id}, {route_ctx, Route_ctx},
+        {net_app, Net_app},
 		{user_fun, fun m3ua_tx_to_user/2}, {user_args, self()}],
 	{ok, M3uaPid} = m3ua_core:start_link(Opts),
 	% FIXME: register this link with SCCP_SCRC
@@ -70,9 +75,15 @@ init(L = #sigtran_link{type = m3ua, name = Name, linkset_name = LinksetName,
 %	{ok, ScrcPid} = sccp_scrc:start_link([{mtp_tx_action, {callback_fn, fun scrc_tx_to_mtp/2, M3uaPid}}]),
 %	loop(#loop_dat{m3ua_pid = M3uaPid, scrc_pid = ScrcPid}).
 
+stop() ->
+    gen_server:cast(?MODULE, stop).
+
 
 set_link_state(#sigtran_link{linkset_name = LinksetName, sls = Sls}, State) ->
 	ok = ss7_links:set_link_state(LinksetName, Sls, State).
+
+get_link_state(#sigtran_link{linkset_name = LinksetName, sls = Sls}) ->
+    ss7_links:get_link_state(LinksetName, Sls).
 
 scrc_tx_to_mtp(Prim, Args) ->
 	M3uaPid = Args,
@@ -114,11 +125,14 @@ handle_cast(#primitive{subsystem = 'M', gen_name = 'ASP_INACTIVE'}, L) ->
 	io:format("~p: ASP_INACTIVE.ind~n", [?MODULE]),
 	set_link_state(L#loop_dat.link, up),
 	{noreply, L};
+handle_cast(stop, State) ->
+    gen_fsm:send_all_state_event(State#loop_dat.m3ua_pid, stop),
+    {stop, normal, State};
 handle_cast(P, L) ->
-	io:format("~p: Ignoring M3UA prim ~p~n", [?MODULE, P]),
+	%~ io:format("~p: Ignoring M3UA prim ~p~n", [?MODULE, P]),
 	{noreply, L}.
 
-terminate(Reason, _S) ->
+terminate(Reason, State) ->
 	io:format("terminating ~p with reason ~p", [?MODULE, Reason]),
 	ok.
 
