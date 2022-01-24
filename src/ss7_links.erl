@@ -96,8 +96,8 @@
 % initialization code
 
 start_link() ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
-    %~ gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+	%~ gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_Arg) ->
 	io:format("init ss7 links~n"),
@@ -272,6 +272,8 @@ mtp3_rx(P = #primitive{parameters=#mtp3_msg{service_ind=Serv}}) ->
 mtp3_tx(Mtp3 = #mtp3_msg{routing_label = RoutLbl}, Link) ->
 	#mtp3_routing_label{sig_link_sel = Sls} = RoutLbl,
 	% discover the link through which we shall send
+	io:format("get pid for ~p ~p ~n", {Link, Sls}),
+	dump(),
 	case get_pid_for_link(Link, Sls) of
 	    {error, Error} ->
 		{error, Error};
