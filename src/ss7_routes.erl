@@ -71,15 +71,13 @@
 % initialization code
 
 start_link() ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).
-	%gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+	%gen_server:start_link({local, ?MODULE}, ?MODULE, [], [{debug, [trace]}]).%
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_Arg) ->
-	io:format("init ss7 routes~n"),
 	RouteTbl = ets:new(ss7_routes, [ordered_set, named_table,
 			     {keypos, #ss7route.remote_pc_mask}]),
 	process_flag(trap_exit, true),
-	io:format("init ss7 routes done~n"),
 	{ok, #sr_state{route_tbl = RouteTbl}}.
     
 stop() ->
